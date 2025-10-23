@@ -19,7 +19,7 @@ try:
 except (ImportError, ModuleNotFoundError):
     # Transformer Engine not found
     pass
-
+from megatron.core.extensions.metis import  get_metis_context
 
 # Check if Transformer Engine has class for fp4 tensors.
 HAVE_TE_FP4_TENSOR_CLASS = False
@@ -109,8 +109,8 @@ if HAVE_TE:
 
             if not is_init:
                 # TE currently uses fp8_autocast for fp8 and fp4 quantization.
-                fp4_context = transformer_engine.pytorch.fp8_autocast(
-                    enabled=True, fp8_recipe=fp4_recipe, fp8_group=fp4_group
+                fp4_context = transformer_engine.pytorch.autocast(
+                    enabled=True, recipe=fp4_recipe, amax_reduction_group=fp4_group
                 )
             else:
                 import inspect
@@ -134,3 +134,66 @@ else:
     def get_fp4_context(config: TransformerConfig, layer_no: int = -1, is_init: bool = False):
         """Return nullcontext when Transformer Engine is not available."""
         return nullcontext()
+
+def apply_lowbit_config_from_transformer(cfg_obj: TransformerConfig):
+    """
+    自动从 TransformerConfig 对象提取同名字段，并调用 LinearLowbitFunction.ctx_config.config()
+    """
+    # 所有 LinearLowbitContext 支持的字段
+    function_mapping_keys = [
+        "q_forward_input",
+        "q_forward_weight",
+        "q_backward_input",
+        "q_backward_weight",
+        "q_backward_outputgrad",
+    ]
+    context_keys = [
+        "q_scalar",
+        "enable_activation_svd",
+        "activation_lowrank_svd",
+        "activation_lowrank_niter",
+        "activation_broadcast_dim",
+        "activation_longtail_schedule",
+        "enable_backward_svd",
+        "backward_lowrank_svd",
+        "backward_lowrank_niter",
+        "backward_broadcast_dim",
+        "backward_longtail_schedule",
+        "enable_lowbit",
+        "forward_svd_rank"
+    ]
+    # print("cfg_obj==",cfg_obj)
+    # 从 cfg_obj 提取存在的字段
+    func_mapping_args = {k: getattr(cfg_obj, k) for k in function_mapping_keys if hasattr(cfg_obj, k)}
+    args = {k: getattr(cfg_obj, k) for k in context_keys if hasattr(cfg_obj, k)}
+    args.update(func_mapping_args)
+    # 使用 with 上下文配置
+    return args
+
+def get_metis_persudo_fp4_context(config: TransformerConfig, layer_no: int = -1, is_init: bool = False):
+        """Return fp4 context manager."""
+        num_bf16_layers_at_start = (
+            config.num_layers_at_start_in_bf16 if config.first_last_layers_bf16 else 0
+        )
+        num_bf16_layers_at_end = (
+            config.num_layers_at_end_in_bf16 if config.first_last_layers_bf16 else 0
+        )
+        is_first_layer = layer_no < num_bf16_layers_at_start
+        is_last_layer = layer_no >= config.num_layers - num_bf16_layers_at_end
+
+        need_fp4_context = config.fp4 if not is_init else config.fp4_param
+
+        if not need_fp4_context:
+            fp4_context = nullcontext()
+        elif layer_no >= 0 and config.first_last_layers_bf16 and (is_first_layer or is_last_layer):
+            fp4_context = nullcontext()
+        else:
+            if config.fp4_recipe == Fp4Recipe.metis_persudo:
+                fp4_context = get_metis_context(**apply_lowbit_config_from_transformer(config))
+            elif config.fp4_recipe == Fp4Recipe.metis_fp4:
+                fp4_context = [get_fp4_context(config, layer_no, is_init),get_metis_context(**apply_lowbit_config_from_transformer(config))]
+            else:
+                raise ValueError(
+                    f"Unsupported fp4_recipe {config.fp4_recipe} for metis context."
+                )
+        return fp4_context

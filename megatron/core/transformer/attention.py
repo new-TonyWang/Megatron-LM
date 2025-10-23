@@ -202,7 +202,7 @@ class Attention(MegatronModule, ABC):
             tp_comm_buffer_name='proj',
             tp_group=self.pg_collection.tp,
         )
-
+        print("attention_linear_proj:", self.linear_proj)
         if (
             HAVE_TE
             and self.config.fp8

@@ -464,7 +464,7 @@ class _ParamAndGradBucketGroup:
             return
         assert self.grad_reduce_handle is not None, (
             f"Communication call has not been issued for this bucket "
-            f"({len(self.params_with_grad)}/{len(self.params)} params have grad available)"
+            f"({len(self.params_with_grad)}/{len(self.params)} params have grad available),self.params={self.params}"
         )
         self.grad_reduce_handle.wait()
         self.grad_reduce_handle = None

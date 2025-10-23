@@ -85,6 +85,7 @@ def add_megatron_arguments(parser: argparse.ArgumentParser):
     parser = _add_msc_args(parser)
     parser = _add_kitchen_quantization_arguments(parser)
     parser = _add_sft_args(parser)
+    parser = _add_metis_args(parser)
 
     return parser
 
@@ -1350,7 +1351,7 @@ def _add_transformer_engine_args(parser):
                        help='Which nvfp4 format scheme to use for FP4 tensors in the forward and backward pass',
                        dest='fp4')
     group.add_argument('--fp4-recipe', default='nvfp4',
-                       choices=['nvfp4'],
+                       choices=['nvfp4','metis_persudo_fp4','metis_fp4'],
                        help='Which fp4 recipe to use for FP4 tensors in the forward and backward pass',
                        dest='fp4_recipe')
     group.add_argument('--fp4-param-gather', action='store_true',
@@ -3325,4 +3326,32 @@ def _add_sft_args(parser):
     group.add_argument('--sft', action="store_true", help='Megatron SFT training')
     group.add_argument('--sft-tokenizer-prompt-format', type=str, default="nemotron-h-aligned", 
                        help='SFT prompt format.')
+    return parser
+
+def _add_metis_args(parser):
+    group = parser.add_argument_group(title='metis')
+    group.add_argument("--use-metis", action='store_true')
+    group.add_argument("--fp4-method", type=str, default="fp4e2m1")
+    group.add_argument("--q-forward-input", type=str, default="fp4e2m1")
+    group.add_argument("--q-forward-weight", type=str, default="fp4e2m1")
+
+    group.add_argument("--q-backward-input", type=str, default="fp4e2m1")
+    group.add_argument("--q-backward-weight", type=str, default="fp4e2m1")
+    group.add_argument("--q-backward-outputgrad", type=str, default="fp4e2m1")
+    group.add_argument("--q-scalar", type=float, default=1.0)
+    
+    group.add_argument("--enable-backward-svd", action='store_true')
+    group.add_argument("--backward-lowrank-svd", type=int, default=-1)
+    group.add_argument("--backward-lowrank-niter", type=int, default=0)
+    group.add_argument("--enable-activation-svd", action='store_true')
+    group.add_argument("--activation-lowrank-svd", type=int, default=-1)
+    group.add_argument("--activation-lowrank-niter", type=int, default=0)
+
+    group.add_argument("--backward-longtail-schedule", type=str, default="none")
+    group.add_argument("--activation-longtail-schedule", type=str, default="none")
+    group.add_argument("--backward-broadcast-dim", type=int, default=-1)
+    group.add_argument("--activation-broadcast-dim", type=int, default=-1)
+    group.add_argument("--enable-lowbit", action='store_true')
+
+    group.add_argument("--forward_svd_rank", type=int, default=-1)
     return parser
