@@ -18,7 +18,7 @@ from .distributed_data_parallel_config import DistributedDataParallelConfig
 from .param_and_grad_buffer import _ParamAndGradBuffer, partition_buckets
 
 logger = logging.getLogger(__name__)
-
+import debugpy
 
 class DistributedDataParallel(_BaseDataParallel):
     """
@@ -448,7 +448,7 @@ class DistributedDataParallel(_BaseDataParallel):
         def hook(*unused):
             if is_graph_capturing():
                 return
-
+            # debugpy.breakpoint()
             if param in self.param_to_bucket_group:
                 assert param.requires_grad
                 if self.ddp_config.overlap_grad_reduce:

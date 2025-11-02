@@ -1,10 +1,10 @@
 from abc import abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any, List, Optional
 
 from torch.distributed.distributed_c10d import ProcessGroup
 from megatron.core.model_parallel_config import ModelParallelConfig
+from megatron.core.transformer.transformer_config import TransformerConfig
 from .quant import *
 import torch.nn as nn
 import torch.nn.init as init
@@ -13,120 +13,14 @@ from functools import partial
 from megatron.core.tensor_parallel.layers import RowParallelLinear, ColumnParallelLinear
 import math
 from megatron.core.tensor_parallel.layers import _initialize_affine_weight_gpu
-import debugpy
-import copy
 from megatron.core.transformer.utils import make_sharded_tensors_for_checkpoint
 from .transformer_engine import TELinear,HAVE_TE
 
-def schedule_none(input_:torch.Tensor):
-    return input_, 1.0
-
-def schedule_l1_m1p5_s2(input_:torch.Tensor):
-    input_[5:] *= 1.5
-    return input_, 2.0
-
 import torch
-from contextlib import contextmanager
+
 import debugpy
 from megatron.core.extensions.quant import quant_func, Cast2Fp4e2m1
-
-@dataclass
-class LinearLowbitContext:
-    q_forward_input = "Cast2Fp4e2m1"
-    q_forward_weight = "Cast2Fp4e2m1"
-    q_backward_input = "Cast2Fp4e2m1"
-    q_backward_weight = "Cast2Fp4e2m1"
-    q_backward_outputgrad = "Cast2Fp4e2m1"
-
-        # SVD & low-rank 配置
-    activation_lowrank_niter = 0
-    backward_lowrank_niter = 0
-    q_scalar = 1.0
-    enable_activation_svd = False
-    activation_lowrank_svd = -1
-    enable_backward_svd = False
-    backward_lowrank_svd = -1
-    activation_broadcast_dim = -1
-    backward_broadcast_dim = -1
-    activation_longtail_schedule = "none"
-    backward_longtail_schedule = "none"
-    enable_lowbit = True
-    forward_svd_rank = -1
-    schedule_list = {
-        "none": schedule_none,
-        "ysche": schedule_l1_m1p5_s2,
-    }
-
-
-    def __repr__(self) -> str:
-        """Pretty full-text representation of LinearLowbitContext."""
-        def fn_name(f):
-            return f.__name__ if callable(f) else repr(f)
-
-        schedules = ", ".join(self.schedule_list.keys())
-
-        return (
-            f"LinearLowbitContext(\n"
-            f"  q_forward_input={fn_name(self.q_forward_input)},\n"
-            f"  q_forward_weight={fn_name(self.q_forward_weight)},\n"
-            f"  q_backward_input={fn_name(self.q_backward_input)},\n"
-            f"  q_backward_weight={fn_name(self.q_backward_weight)},\n"
-            f"  q_backward_outputgrad={fn_name(self.q_backward_outputgrad)},\n"
-            f"  activation_lowrank_niter={self.activation_lowrank_niter},\n"
-            f"  backward_lowrank_niter={self.backward_lowrank_niter},\n"
-            f"  q_scalar={self.q_scalar},\n"
-            f"  enable_activation_svd={self.enable_activation_svd},\n"
-            f"  activation_lowrank_svd={self.activation_lowrank_svd},\n"
-            f"  enable_backward_svd={self.enable_backward_svd},\n"
-            f"  backward_lowrank_svd={self.backward_lowrank_svd},\n"
-            f"  activation_broadcast_dim={self.activation_broadcast_dim},\n"
-            f"  backward_broadcast_dim={self.backward_broadcast_dim},\n"
-            f"  activation_longtail_schedule='{self.activation_longtail_schedule}',\n"
-            f"  backward_longtail_schedule='{self.backward_longtail_schedule}',\n"
-            f"  enable_lowbit={self.enable_lowbit},\n"
-            f"  forward_svd_rank={self.forward_svd_rank},\n"
-            f"  schedule_list_keys=[{schedules}]\n"
-            f")"
-        )
-    # === 新增：clone 方法 ===
-    def clone(self):
-        new_obj = self.__class__()  # 创建新实例
-        for k, v in self.__dict__.items():  # 拷贝实例属性
-            setattr(new_obj, k, copy.deepcopy(v))
-        # 如果类属性未实例化到 __dict__ 中，也复制它们
-        for k, v in self.__class__.__dict__.items():
-            if not k.startswith("__") and not callable(v) and k not in new_obj.__dict__:
-                setattr(new_obj, k, copy.deepcopy(v))
-        return new_obj
-
-@contextmanager
-def get_metis_context(**kwargs):
-    """
-    用于临时修改 LinearLowbitContext 全局配置的上下文管理器。
-    进入时按 kwargs 修改，退出时自动恢复。
-    
-    示例：
-        with get_metis_context(q_scalar=0.5, enable_lowbit=False):
-            # 临时使用低比特关闭配置
-            ...
-    """
-    old_state = {}
-    # print("entering metis context with ", kwargs)
-    try:
-        # 保存旧值并设置新值
-        for key, value in kwargs.items():
-            if hasattr(LinearLowbitContext, key):
-                old_state[key] = getattr(LinearLowbitContext, key)
-                setattr(LinearLowbitContext, key, value)
-            else:
-                raise AttributeError(f"LinearLowbitContext has no attribute '{key}'")
-        # debugpy.breakpoint()
-        yield
-    finally:
-        # 恢复原始值
-        # print("exiting metis context with ", old_state)
-        for key, value in old_state.items():
-            setattr(LinearLowbitContext, key, value)
+from transformer_engine.pytorch.module.metis.metix_linear import LinearLowbitContext
 
 class LinearLowbitFunction(torch.autograd.Function):
 
@@ -349,11 +243,14 @@ class LinearLowbit(torch.nn.Module):
         self.weight = torch.nn.Parameter(
             torch.empty((out_features, in_features), device=torch.cuda.current_device(), dtype=self.config.params_dtype)
         )
+        setattr(self.weight,"allreduce",True)
         if bias:
             self.bias = torch.nn.Parameter(
                 torch.empty((out_features,), device=torch.cuda.current_device(), dtype=self.config.params_dtype)
             )
+            setattr(self.bias, "allreduce", True)
         else:
+            self.register_parameter("bias", None)
             self.bias = None
         self.linear_lobit_context = LinearLowbitContext().clone()
         # self.reset_parameters()
@@ -366,6 +263,13 @@ class LinearLowbit(torch.nn.Module):
     #         fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
     #         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
     #         init.uniform_(self.bias, -bound, bound)
+            # Hook adding a default empty _extra_state for state dict
+        self._register_load_state_dict_pre_hook(
+            lambda state_dict, prefix, *args, **kwargs: state_dict.setdefault(
+                f"{prefix}_extra_state"
+            )
+        )
+
     def sharded_state_dict(self, prefix="", sharded_offsets=(), metadata=None):
         """Sharding along axis 0, bias sharded"""
         state_dict = self.state_dict(prefix="", keep_vars=True)
@@ -385,7 +289,13 @@ class LinearLowbit(torch.nn.Module):
     def forward(self, input):
         return LinearLowbitFunction.apply(input, self.weight, self.bias,self.linear_lobit_context)
 
-
+    def __repr__(self):
+        tp = 1
+        use_bias = self.bias is not None and self.bias is True
+        return (
+            f"{type(self).__name__}(in_features={self.in_features}, "
+            f"out_features={self.out_features}, bias={use_bias}, TP={tp})"
+        )
 
 class BitLinear(torch.nn.Module):
     def __init__(self,
@@ -586,6 +496,103 @@ class BitLinear(torch.nn.Module):
     def get_extra_state(self) -> None:
         """Keep compatibility with TE state dict."""
         return None
+
+class BitLiearQKV(nn.Module):
+    def __init__(self,
+    input_size,
+    output_size,
+    *,
+    config: TransformerConfig,
+    init_method: Callable,
+    bias=True,
+    gather_output=False,
+    stride=1,
+    keep_master_weight_for_test=False,
+    skip_bias_add=False,
+    skip_weight_param_allocation: bool = False,
+    embedding_activation_buffer: Optional[List[torch.Tensor]] = None,
+    grad_output_buffer: Optional[List[torch.Tensor]] = None,
+    is_expert: bool = False,
+    tp_comm_buffer_name: str = None,  # Not used
+    disable_grad_reduce: bool = False,
+    input_is_parallel: bool = False,
+    tp_group: Optional[torch.distributed.ProcessGroup] = None,):
+        super().__init__() 
+
+        self.query_projection_size = config.kv_channels * config.num_attention_heads
+        self.kv_projection_size = config.kv_channels * config.num_query_groups
+        print("config.query_projection_size==,",self.query_projection_size)
+        print("config.kv_projection_size==,", self.kv_projection_size)
+        self.q_linear = BitLinear(
+            input_size,
+            self.query_projection_size,
+            config=config,
+            init_method=init_method,
+            bias=bias,
+            gather_output=gather_output,
+            stride=stride,
+            keep_master_weight_for_test=keep_master_weight_for_test,
+            skip_bias_add=skip_bias_add,
+            skip_weight_param_allocation=skip_weight_param_allocation,
+            embedding_activation_buffer=embedding_activation_buffer,
+            grad_output_buffer=grad_output_buffer,
+            is_expert=is_expert,
+            tp_comm_buffer_name=tp_comm_buffer_name,
+            disable_grad_reduce=disable_grad_reduce,
+            input_is_parallel=input_is_parallel,
+            tp_group=tp_group,
+        )
+
+        self.k_linear = BitLinear(
+            input_size,
+            self.kv_projection_size,
+            config=config,
+            init_method=init_method,
+            bias=bias,
+            gather_output=gather_output,
+            stride=stride,
+            keep_master_weight_for_test=keep_master_weight_for_test,
+            skip_bias_add=skip_bias_add,
+            skip_weight_param_allocation=skip_weight_param_allocation,
+            embedding_activation_buffer=embedding_activation_buffer,
+            grad_output_buffer=grad_output_buffer,
+            is_expert=is_expert,
+            tp_comm_buffer_name=tp_comm_buffer_name,
+            disable_grad_reduce=disable_grad_reduce,
+            input_is_parallel=input_is_parallel,
+            tp_group=tp_group,
+        )
+
+        self.v_linear = BitLinear(
+            input_size,
+            self.kv_projection_size,
+            config=config,
+            init_method=init_method,
+            bias=bias,
+            gather_output=gather_output,
+            stride=stride,
+            keep_master_weight_for_test=keep_master_weight_for_test,
+            skip_bias_add=skip_bias_add,
+            skip_weight_param_allocation=skip_weight_param_allocation,
+            embedding_activation_buffer=embedding_activation_buffer,
+            grad_output_buffer=grad_output_buffer,
+            is_expert=is_expert,
+            tp_comm_buffer_name=tp_comm_buffer_name,
+            disable_grad_reduce=disable_grad_reduce,
+            input_is_parallel=input_is_parallel,
+            tp_group=tp_group,
+        )
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor,Optional[torch.Tensor],Optional[torch.Tensor],Optional[torch.Tensor]]:
+        sq,b,h = x.shape
+        q,_ = self.q_linear(x)
+        k,_ = self.k_linear(x)
+        v,_ = self.v_linear(x)
+        # print("q.shape==",q.shape)
+        # print("k.shape==",k.shape)
+        # print("v.shape==",v.shape)
+        out = torch.cat((q, k, v), dim=-1)
+        # print("out.shape==",out.shape)
+        return out, None
 
 # class BitLinearRowParallelLinear(RowParallelLinear):
 #         super().__init__(input_size, output_size, config=config, init_method=init_method, bias=bias, input_is_parallel=input_is_parallel, skip_bias_add=skip_bias_add, stride=stride, keep_master_weight_for_test=keep_master_weight_for_test, is_expert=is_expert, tp_comm_buffer_name=tp_comm_buffer_name, tp_group=tp_group)

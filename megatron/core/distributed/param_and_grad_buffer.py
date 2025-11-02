@@ -35,7 +35,7 @@ except:
     dist_reduce_scatter_func = torch.distributed._reduce_scatter_base
 
 import megatron.core.nccl_allocator as nccl_allocator
-
+import debugpy
 
 class BufferType(Enum):
     """
@@ -156,6 +156,9 @@ class _ParamAndGradBucketGroup:
         self.param_gather_handle = None
         self.param_gather_dispatched = False
         self.grad_reduce_handle = None
+
+
+        # #5678 is the default attach port in the VS Code debug configurations. Unless a host and port are specified, host defaults to 127.0.0.1
 
         # Each time a local shard is created from bucket.param_data or bucket.grad_data, it
         # introduces some CPU overheads. We use these two lists to cache the created local
@@ -432,7 +435,7 @@ class _ParamAndGradBucketGroup:
                         group=self.inter_distributed_optimizer_instance_group,
                         async_op=async_op,
                     )
-
+        # debugpy.breakpoint()
         if async_op:
             self.grad_reduce_handle = cm
         else:
@@ -441,6 +444,7 @@ class _ParamAndGradBucketGroup:
             # which case the torch.distributed._reduce_scatter_base() will return None. In order to
             # maintain consistency with prior code, we need to manually set communication handle to
             # None.
+            # debugpy.breakpoint()
             self.grad_reduce_handle = None
 
     def finish_grad_sync(self):
@@ -462,6 +466,7 @@ class _ParamAndGradBucketGroup:
         if self.ddp_config.num_distributed_optimizer_instances > 1:
             torch.cuda.default_stream().wait_stream(self.communication_stream)
             return
+        # debugpy.breakpoint()
         assert self.grad_reduce_handle is not None, (
             f"Communication call has not been issued for this bucket "
             f"({len(self.params_with_grad)}/{len(self.params)} params have grad available),self.params={self.params}"

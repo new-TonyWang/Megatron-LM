@@ -2,7 +2,7 @@
 
 import warnings
 from typing import Optional, Tuple
-from megatron.core.extensions.metis import BitLinear
+from megatron.core.extensions.metis import BitLinear,BitLiearQKV
 
 from megatron.core.models.backends import LocalSpecProvider,BackendSpecProvider
 from .transformer_engine_spec_provider import TESpecProvider
@@ -30,3 +30,6 @@ class MetisTeSpecProvider(TESpecProvider, MetisSpecProviderBase):
     def fuse_layernorm_and_linear(self)-> bool:
         """Whether to fuse layernorm and linear"""
         return False
+
+    def qkv_linear(self)->type:
+        return BitLiearQKV
