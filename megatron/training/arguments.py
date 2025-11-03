@@ -3353,5 +3353,6 @@ def _add_metis_args(parser):
     group.add_argument("--activation-broadcast-dim", type=int, default=-1)
     group.add_argument("--enable-lowbit", action='store_true')
 
-    group.add_argument("--forward_svd_rank", type=int, default=-1)
+    group.add_argument("--forward-svd-rank", type=int, default=-1)
+    group.add_argument("--enable-weight-svd", action='store_true')
     return parser

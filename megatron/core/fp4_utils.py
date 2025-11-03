@@ -183,7 +183,7 @@ def get_metis_persudo_fp4_context(config: TransformerConfig, layer_no: int = -1,
         is_last_layer = layer_no >= config.num_layers - num_bf16_layers_at_end
 
         need_fp4_context = config.fp4 if not is_init else config.fp4_param
-        print(f"get_metis_persudo_fp4_context,config={config},is_init={is_init},layer_no={layer_no},need_fp4_context={need_fp4_context} ")
+        # print(f"get_metis_persudo_fp4_context,config={config},is_init={is_init},layer_no={layer_no},need_fp4_context={need_fp4_context} ")
         if not need_fp4_context:
             fp4_context = nullcontext()
         elif layer_no >= 0 and config.first_last_layers_bf16 and (is_first_layer or is_last_layer):

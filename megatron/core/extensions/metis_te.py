@@ -359,10 +359,12 @@ class MetisColumnParallelLinear(MetisTELinear):
         )
 
     def __repr__(self):
-        return (
+        base_repr = super().__repr__()
+        child_repr =  (
             f"{type(self).__name__}(in_features={self.in_features}, "
             f"out_features={self.out_features}, bias={self.use_bias}, TP={self.tp_size})"
         )
+        return f"{base_repr}\n\n{child_repr}"
 
     def backward_dw(self):
         """Compute weight gradients during the backward pass if delay_wgrad_compute is enabled."""
@@ -452,10 +454,12 @@ class MetisRowParallelLinear(MetisTELinear):
         )
 
     def __repr__(self):
-        return (
+        base_repr = super().__repr__()
+        child_repr =  (
             f"{type(self).__name__}(in_features={self.in_features}, "
             f"out_features={self.out_features}, bias={self.use_bias}, TP={self.tp_size})"
         )
+        return f"{base_repr}\n\n{child_repr}"
 
     def backward_dw(self):
         """Compute weight gradients during the backward pass if delay_wgrad_compute is enabled."""

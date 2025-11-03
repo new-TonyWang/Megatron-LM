@@ -82,6 +82,7 @@ def get_gpt_layer_with_transformer_engine_spec(
     use_te_op_fuser: Optional[bool] = False,
     use_kitchen: bool = False,
     use_te_activation_func: bool = False,
+    use_metis:bool = False,
     metis_fp4_recipe:  Optional[Fp4Recipe] = None,
 ) -> ModuleSpec:
     """Use this spec to use lower-level Transformer Engine modules (required for fp8 training).
@@ -116,9 +117,9 @@ def get_gpt_layer_with_transformer_engine_spec(
         if use_te_activation_func:
             raise AssertionError("use_te_activation_func not compatible with using kitchen.")
 
-    elif metis_fp4_recipe == Fp4Recipe.metis_persudo:
+    elif use_metis and metis_fp4_recipe == Fp4Recipe.metis_persudo:
         backend = MetisPersudoTeSpecProvider()
-    elif metis_fp4_recipe == Fp4Recipe.metis_te_fp4:
+    elif use_metis and metis_fp4_recipe == Fp4Recipe.metis_te_fp4:
         backend = MetisTeSpecProvider()
     else:
         backend = TESpecProvider()
@@ -169,7 +170,7 @@ def get_gpt_layer_with_transformer_engine_spec(
                 mlp_bda=get_bias_dropout_add,
             ),
         )
-    elif metis_fp4_recipe:
+    elif use_metis:
         qk_norm = backend.layer_norm(for_qk=True)
         return ModuleSpec(
             module=TransformerLayer,

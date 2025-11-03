@@ -94,6 +94,8 @@ class TorchFullyShardedDataParallel(_BaseDataParallel):
                     # disable fp8 transpose cache and perform transposing fp8 weights
                     # at each micro-batch because torch-FSDP doesn't recognize the
                     # micro-batch id, thus removing unnecessary memory stores
+                    if attrs.get('_fp8_attrs') is None:
+                        continue
                     attrs['_fp8_attrs']['transpose_invalid'] = False
                     del attrs['_fp8_attrs']['transpose']
                 custom_attrs[name] = {k: v for k, v in attrs.items()}
