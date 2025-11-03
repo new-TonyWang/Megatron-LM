@@ -523,65 +523,27 @@ class BitLiearQKV(nn.Module):
         self.kv_projection_size = config.kv_channels * config.num_query_groups
         print("config.query_projection_size==,",self.query_projection_size)
         print("config.kv_projection_size==,", self.kv_projection_size)
-        self.q_linear = BitLinear(
-            input_size,
-            self.query_projection_size,
-            config=config,
-            init_method=init_method,
-            bias=bias,
-            gather_output=gather_output,
-            stride=stride,
-            keep_master_weight_for_test=keep_master_weight_for_test,
-            skip_bias_add=skip_bias_add,
-            skip_weight_param_allocation=skip_weight_param_allocation,
-            embedding_activation_buffer=embedding_activation_buffer,
-            grad_output_buffer=grad_output_buffer,
-            is_expert=is_expert,
-            tp_comm_buffer_name=tp_comm_buffer_name,
-            disable_grad_reduce=disable_grad_reduce,
-            input_is_parallel=input_is_parallel,
-            tp_group=tp_group,
-        )
+        bitlinear_kwargs = {
+            "config": config,
+            "init_method": init_method,
+            "bias": bias,
+            "gather_output": gather_output,
+            "stride": stride,
+            "keep_master_weight_for_test": keep_master_weight_for_test,
+            "skip_bias_add": skip_bias_add,
+            "skip_weight_param_allocation": skip_weight_param_allocation,
+            "embedding_activation_buffer": embedding_activation_buffer,
+            "grad_output_buffer": grad_output_buffer,
+            "is_expert": is_expert,
+            "tp_comm_buffer_name": tp_comm_buffer_name,
+            "disable_grad_reduce": disable_grad_reduce,
+            "input_is_parallel": input_is_parallel,
+            "tp_group": tp_group,
+        }
 
-        self.k_linear = BitLinear(
-            input_size,
-            self.kv_projection_size,
-            config=config,
-            init_method=init_method,
-            bias=bias,
-            gather_output=gather_output,
-            stride=stride,
-            keep_master_weight_for_test=keep_master_weight_for_test,
-            skip_bias_add=skip_bias_add,
-            skip_weight_param_allocation=skip_weight_param_allocation,
-            embedding_activation_buffer=embedding_activation_buffer,
-            grad_output_buffer=grad_output_buffer,
-            is_expert=is_expert,
-            tp_comm_buffer_name=tp_comm_buffer_name,
-            disable_grad_reduce=disable_grad_reduce,
-            input_is_parallel=input_is_parallel,
-            tp_group=tp_group,
-        )
-
-        self.v_linear = BitLinear(
-            input_size,
-            self.kv_projection_size,
-            config=config,
-            init_method=init_method,
-            bias=bias,
-            gather_output=gather_output,
-            stride=stride,
-            keep_master_weight_for_test=keep_master_weight_for_test,
-            skip_bias_add=skip_bias_add,
-            skip_weight_param_allocation=skip_weight_param_allocation,
-            embedding_activation_buffer=embedding_activation_buffer,
-            grad_output_buffer=grad_output_buffer,
-            is_expert=is_expert,
-            tp_comm_buffer_name=tp_comm_buffer_name,
-            disable_grad_reduce=disable_grad_reduce,
-            input_is_parallel=input_is_parallel,
-            tp_group=tp_group,
-        )
+        self.q_linear = BitLinear(input_size, self.query_projection_size, **bitlinear_kwargs)
+        self.k_linear = BitLinear(input_size, self.kv_projection_size, **bitlinear_kwargs)
+        self.v_linear = BitLinear(input_size, self.kv_projection_size, **bitlinear_kwargs)
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor,Optional[torch.Tensor],Optional[torch.Tensor],Optional[torch.Tensor]]:
         sq,b,h = x.shape
         q,_ = self.q_linear(x)

@@ -423,8 +423,8 @@ class TransformerConfig(ModelParallelConfig):
     use_metis: bool = False
     """If set, enables the use of Metis quantization methods for FP4 precision training"""
 
-    fp4_method: str = "te_fp4"
-    """Method to use for FP4 quantization. Only support te_fp4, metis_fp4 and metis_persudo_fp4"""
+    # fp4_method: str = "te_fp4"
+    # """Method to use for FP4 quantization. Only support te_fp4, metis_fp4 and metis_persudo_fp4"""
 
     q_forward_input: str = "fp4e2m1b"
     """Quantization format for forward input activation."""
@@ -489,6 +489,8 @@ class TransformerConfig(ModelParallelConfig):
     forward_svd_rank: int = -1
     """Target SVD rank to use in forward path approximations. -1 indicates auto or unset."""
 
+    enable_weight_svd: bool = False
+    """If True, enable SVD-based low-rank decomposition for weight tensors."""
     ####################
     # MoE related
     ####################

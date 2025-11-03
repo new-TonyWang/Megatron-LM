@@ -1351,7 +1351,7 @@ def _add_transformer_engine_args(parser):
                        help='Which nvfp4 format scheme to use for FP4 tensors in the forward and backward pass',
                        dest='fp4')
     group.add_argument('--fp4-recipe', default='nvfp4',
-                       choices=['nvfp4','metis_persudo_fp4','metis_fp4'],
+                       choices=['nvfp4','metis_persudo_fp4','metis_te_fp4'],
                        help='Which fp4 recipe to use for FP4 tensors in the forward and backward pass',
                        dest='fp4_recipe')
     group.add_argument('--fp4-param-gather', action='store_true',
@@ -3331,7 +3331,7 @@ def _add_sft_args(parser):
 def _add_metis_args(parser):
     group = parser.add_argument_group(title='metis')
     group.add_argument("--use-metis", action='store_true')
-    group.add_argument("--fp4-method", type=str, default="fp4e2m1")
+    # group.add_argument("--fp4-method", type=str, default="fp4e2m1")
     group.add_argument("--q-forward-input", type=str, default="fp4e2m1")
     group.add_argument("--q-forward-weight", type=str, default="fp4e2m1")
 

@@ -67,7 +67,7 @@ except ImportError:
     warnings.warn("Apex is not installed. Falling back to Torch Norm")
     LNImpl = WrappedTorchNorm
     HAVE_APEX = False
-from megatron.core.extensions.metis_spec_provider import MetisSpecProviderBase,MetisSpecProvider,MetisTeSpecProvider
+from megatron.core.extensions.metis_spec_provider import MetisSpecProviderBase,MetisSpecProvider,MetisPersudoTeSpecProvider,MetisTeSpecProvider
 from megatron.core.enums import Fp4Recipe
 
 
@@ -117,6 +117,8 @@ def get_gpt_layer_with_transformer_engine_spec(
             raise AssertionError("use_te_activation_func not compatible with using kitchen.")
 
     elif metis_fp4_recipe == Fp4Recipe.metis_persudo:
+        backend = MetisPersudoTeSpecProvider()
+    elif metis_fp4_recipe == Fp4Recipe.metis_te_fp4:
         backend = MetisTeSpecProvider()
     else:
         backend = TESpecProvider()
@@ -167,7 +169,7 @@ def get_gpt_layer_with_transformer_engine_spec(
                 mlp_bda=get_bias_dropout_add,
             ),
         )
-    elif metis_fp4_recipe == Fp4Recipe.metis_persudo:
+    elif metis_fp4_recipe:
         qk_norm = backend.layer_norm(for_qk=True)
         return ModuleSpec(
             module=TransformerLayer,

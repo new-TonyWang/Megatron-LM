@@ -2,7 +2,7 @@
 
 """Utility functions related to FP4 that are used throughout Megatron core"""
 
-from contextlib import nullcontext
+from contextlib import nullcontext, ExitStack
 
 import torch
 
@@ -19,7 +19,7 @@ try:
 except (ImportError, ModuleNotFoundError):
     # Transformer Engine not found
     pass
-from megatron.core.extensions.metis import  get_metis_context
+from transformer_engine.pytorch.module.metis.metix_context import  get_metis_context
 
 # Check if Transformer Engine has class for fp4 tensors.
 HAVE_TE_FP4_TENSOR_CLASS = False
@@ -160,7 +160,8 @@ def apply_lowbit_config_from_transformer(cfg_obj: TransformerConfig):
         "backward_broadcast_dim",
         "backward_longtail_schedule",
         "enable_lowbit",
-        "forward_svd_rank"
+        "forward_svd_rank",
+        "enable_weight_svd",
     ]
     # print("cfg_obj==",cfg_obj)
     # 从 cfg_obj 提取存在的字段
@@ -182,7 +183,7 @@ def get_metis_persudo_fp4_context(config: TransformerConfig, layer_no: int = -1,
         is_last_layer = layer_no >= config.num_layers - num_bf16_layers_at_end
 
         need_fp4_context = config.fp4 if not is_init else config.fp4_param
-
+        print(f"get_metis_persudo_fp4_context,config={config},is_init={is_init},layer_no={layer_no},need_fp4_context={need_fp4_context} ")
         if not need_fp4_context:
             fp4_context = nullcontext()
         elif layer_no >= 0 and config.first_last_layers_bf16 and (is_first_layer or is_last_layer):
@@ -190,8 +191,13 @@ def get_metis_persudo_fp4_context(config: TransformerConfig, layer_no: int = -1,
         else:
             if config.fp4_recipe == Fp4Recipe.metis_persudo:
                 fp4_context = get_metis_context(**apply_lowbit_config_from_transformer(config))
-            elif config.fp4_recipe == Fp4Recipe.metis_fp4:
-                fp4_context = [get_fp4_context(config, layer_no, is_init),get_metis_context(**apply_lowbit_config_from_transformer(config))]
+            elif config.fp4_recipe == Fp4Recipe.metis_te_fp4:
+                config.fp4_recipe = Fp4Recipe.nvfp4
+                stack = ExitStack()
+                stack.enter_context(get_fp4_context(config, layer_no, is_init))
+                stack.enter_context(get_metis_context(**apply_lowbit_config_from_transformer(config)))
+                fp4_context = stack
+                config.fp4_recipe = Fp4Recipe.metis_te_fp4
             else:
                 raise ValueError(
                     f"Unsupported fp4_recipe {config.fp4_recipe} for metis context."
