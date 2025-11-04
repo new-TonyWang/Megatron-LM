@@ -19,7 +19,7 @@ try:
 except (ImportError, ModuleNotFoundError):
     # Transformer Engine not found
     pass
-from transformer_engine.pytorch.module.metis.metix_context import  get_metis_context
+from transformer_engine.pytorch.module.metis.metis_context import  get_metis_context
 
 # Check if Transformer Engine has class for fp4 tensors.
 HAVE_TE_FP4_TENSOR_CLASS = False

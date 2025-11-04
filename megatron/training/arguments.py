@@ -3342,10 +3342,10 @@ def _add_metis_args(parser):
     
     group.add_argument("--enable-backward-svd", action='store_true')
     group.add_argument("--backward-lowrank-svd", type=int, default=-1)
-    group.add_argument("--backward-lowrank-niter", type=int, default=0)
+    group.add_argument("--backward-lowrank-niter", type=int, default=2)
     group.add_argument("--enable-activation-svd", action='store_true')
     group.add_argument("--activation-lowrank-svd", type=int, default=-1)
-    group.add_argument("--activation-lowrank-niter", type=int, default=0)
+    group.add_argument("--activation-lowrank-niter", type=int, default=2)
 
     group.add_argument("--backward-longtail-schedule", type=str, default="none")
     group.add_argument("--activation-longtail-schedule", type=str, default="none")
