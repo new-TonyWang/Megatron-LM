@@ -491,6 +491,10 @@ class TransformerConfig(ModelParallelConfig):
 
     enable_weight_svd: bool = False
     """If True, enable SVD-based low-rank decomposition for weight tensors."""
+
+    gradacc_broadcast: bool = False
+    """If True, broacast grad svd ."""
+
     ####################
     # MoE related
     ####################

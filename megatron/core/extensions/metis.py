@@ -20,7 +20,7 @@ import torch
 
 import debugpy
 from megatron.core.extensions.quant import quant_func, Cast2Fp4e2m1
-from transformer_engine.pytorch.module.metis.metis_linear import LinearLowbitContext
+from transformer_engine.pytorch.module.metis.metis_context import LinearLowbitContext
 
 class LinearLowbitFunction(torch.autograd.Function):
 

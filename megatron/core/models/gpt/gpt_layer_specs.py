@@ -67,7 +67,6 @@ except ImportError:
     warnings.warn("Apex is not installed. Falling back to Torch Norm")
     LNImpl = WrappedTorchNorm
     HAVE_APEX = False
-from megatron.core.extensions.metis_spec_provider import MetisSpecProviderBase,MetisSpecProvider,MetisPersudoTeSpecProvider,MetisTeSpecProvider
 from megatron.core.enums import Fp4Recipe
 
 
@@ -117,10 +116,16 @@ def get_gpt_layer_with_transformer_engine_spec(
         if use_te_activation_func:
             raise AssertionError("use_te_activation_func not compatible with using kitchen.")
 
-    elif use_metis and metis_fp4_recipe == Fp4Recipe.metis_persudo:
-        backend = MetisPersudoTeSpecProvider()
-    elif use_metis and metis_fp4_recipe == Fp4Recipe.metis_te_fp4:
-        backend = MetisTeSpecProvider()
+    elif use_metis:
+        from megatron.core.extensions.metis_spec_provider import MetisPersudoTeSpecProvider, MetisTeSpecProvider
+        if metis_fp4_recipe == Fp4Recipe.metis_persudo:
+            backend = MetisPersudoTeSpecProvider()
+        elif metis_fp4_recipe == Fp4Recipe.metis_te_fp4:
+            backend = MetisTeSpecProvider()
+        else:
+            raise ValueError(
+                "Unknown provider"
+            )
     else:
         backend = TESpecProvider()
 
@@ -171,6 +176,7 @@ def get_gpt_layer_with_transformer_engine_spec(
             ),
         )
     elif use_metis:
+        from megatron.core.extensions.metis_spec_provider import MetisSpecProviderBase,MetisSpecProvider,MetisPersudoTeSpecProvider,MetisTeSpecProvider
         qk_norm = backend.layer_norm(for_qk=True)
         return ModuleSpec(
             module=TransformerLayer,
@@ -180,7 +186,7 @@ def get_gpt_layer_with_transformer_engine_spec(
                     module=SelfAttention,
                     params={"attn_mask_type": AttnMaskType.causal},
                     submodules=SelfAttentionSubmodules(
-                        linear_qkv=backend.qkv_linear(),
+                        linear_qkv=backend.column_parallel_linear(),
                         core_attention=backend.core_attention(),
                         linear_proj=backend.row_parallel_linear(),
                         q_layernorm=(
@@ -206,6 +212,7 @@ def get_gpt_layer_with_transformer_engine_spec(
         return ModuleSpec(
             module=TransformerLayer,
             submodules=TransformerLayerSubmodules(
+                input_layernorm=qk_norm,
                 self_attention=ModuleSpec(
                     module=SelfAttention,
                     params={"attn_mask_type": AttnMaskType.causal},

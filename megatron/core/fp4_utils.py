@@ -19,7 +19,6 @@ try:
 except (ImportError, ModuleNotFoundError):
     # Transformer Engine not found
     pass
-from transformer_engine.pytorch.module.metis.metis_context import  get_metis_context
 
 # Check if Transformer Engine has class for fp4 tensors.
 HAVE_TE_FP4_TENSOR_CLASS = False
@@ -162,6 +161,8 @@ def apply_lowbit_config_from_transformer(cfg_obj: TransformerConfig):
         "enable_lowbit",
         "forward_svd_rank",
         "enable_weight_svd",
+        "gradacc_broadcast",
+        "gradacc_broadcast_steps"
     ]
     # print("cfg_obj==",cfg_obj)
     # 从 cfg_obj 提取存在的字段
@@ -172,6 +173,7 @@ def apply_lowbit_config_from_transformer(cfg_obj: TransformerConfig):
     return args
 
 def get_metis_persudo_fp4_context(config: TransformerConfig, layer_no: int = -1, is_init: bool = False):
+        from transformer_engine.pytorch.module.metis.metis_context import  get_metis_context
         """Return fp4 context manager."""
         num_bf16_layers_at_start = (
             config.num_layers_at_start_in_bf16 if config.first_last_layers_bf16 else 0

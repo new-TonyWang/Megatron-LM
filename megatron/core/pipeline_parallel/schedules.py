@@ -32,7 +32,7 @@ from .combined_1f1b import (
     combined_1f1b_schedule_for_interleaved_pipelining,
     combined_1f1b_schedule_for_no_pipelining,
 )
-
+from contextlib import ExitStack
 # Types
 Shape = Union[List[int], torch.Size]
 
@@ -121,12 +121,16 @@ def get_forward_backward_func():
         which have different shape handling.
 
     """
+    from megatron.training import get_args, print_rank_0
+    args = get_args()
     pipeline_model_parallel_size = parallel_state.get_pipeline_model_parallel_world_size()
     if pipeline_model_parallel_size > 1:
         if parallel_state.get_virtual_pipeline_model_parallel_world_size() is not None:
             forward_backward_func = forward_backward_pipelining_with_interleaving
         else:
             forward_backward_func = forward_backward_pipelining_without_interleaving
+    elif args.use_metis:
+        forward_backward_func = forward_backward_no_pipelining_metis
     else:
         forward_backward_func = forward_backward_no_pipelining
     return forward_backward_func
@@ -2284,6 +2288,190 @@ def forward_backward_pipelining_without_interleaving(
         # Finalize model grads (perform full grad all-reduce / reduce-scatter for
         # data parallelism, layernorm all-reduce for sequence parallelism, and
         # embedding all-reduce for pipeline parallelism).
+        config.finalize_model_grads_func(
+            [model],
+            total_num_tokens if config.calculate_per_token_loss else None,
+            pg_collection=pg_collection,
+        )
+
+    if config.timers is not None:
+        config.timers('forward-backward').stop()
+
+    if (
+        hasattr(config, 'cuda_graph_impl')
+        and config.cuda_graph_impl == "local"
+        and config.cuda_graph_scope != "full_iteration"
+    ):
+        create_cudagraphs()
+
+    return forward_data_store
+
+def forward_backward_no_pipelining_metis(
+    *,
+    forward_step_func,
+    data_iterator: Union[Iterator, List[Iterator]],
+    model: Union[torch.nn.Module, List[torch.nn.Module]],
+    num_microbatches: int,
+    seq_length: int,  # unused
+    micro_batch_size: int,  # unused
+    decoder_seq_length: Optional[int] = None,  # unused
+    forward_only: bool = False,
+    collect_non_loss_data: bool = False,
+    first_val_step: Optional[bool] = None,
+    adjust_tensor_shapes_fn: Optional[Callable] = None,  # unused
+    pg_collection: Optional[ProcessGroupCollection] = None,
+):
+    """Run forward and backward passes with no pipeline parallelism"""
+    from transformer_engine.pytorch.module import  load_svd_history
+    from megatron.training import get_args, print_rank_0
+    if pg_collection is None:
+        tp_group = parallel_state.get_tensor_model_parallel_group()
+        cp_group = parallel_state.get_context_parallel_group()
+        embd_group = parallel_state.get_embedding_group(check_initialized=False)
+        pp_group = parallel_state.get_pipeline_model_parallel_group()
+        pos_emb_group = parallel_state.get_position_embedding_group(check_initialized=False)
+        pg_collection = ProcessGroupCollection()
+        pg_collection.tp = tp_group
+        pg_collection.cp = cp_group
+        pg_collection.embd = embd_group
+        pg_collection.pos_embd = pos_emb_group
+        pg_collection.pp = pp_group
+        pg_collection.dp_cp = parallel_state.get_data_parallel_group(
+            with_context_parallel=True, partial_data_parallel=False
+        )
+
+    elif pg_collection is not None:
+        assert hasattr(pg_collection, 'tp')
+        assert hasattr(pg_collection, 'cp')
+        assert hasattr(pg_collection, 'embd'), (
+            "pg_collection must have a embd. In previous version, it is used default "
+            "`parallel_state.default_embedding_ranks` to create the process group. If you are "
+            "using the default process group, please use `parallel_state.get_embedding_group()` "
+            "to get the process group. If you don't need explicitly set it to None."
+        )
+        assert hasattr(pg_collection, 'pos_embd'), (
+            "pg_collection must have a pos_embd. In previous version, it is used default "
+            "`parallel_state.default_position_embedding_ranks` to create the process group. "
+            "If you are using the default process group, "
+            "please use `parallel_state.get_position_embedding_group()` "
+            "to get the process group. If you don't need explicitly set it to None."
+        )
+        assert hasattr(pg_collection, 'pp')
+        assert hasattr(pg_collection, 'dp_cp')
+
+    if isinstance(model, list):
+        assert len(model) == 1, "non-pipeline-parallel schedule does not support model chunking"
+        model = model[0]
+    if isinstance(data_iterator, list):
+        assert (
+            len(data_iterator) == 1
+        ), "non-pipeline-parallel schedule does not support model chunking"
+        data_iterator = data_iterator[0]
+    assert (
+        adjust_tensor_shapes_fn is None
+    ), "adjust_tensor_shapes_fn is not supported for non-pipeline-parallel schedule"
+
+    config = get_model_config(model)
+    if config.timers is not None:
+        config.timers('forward-backward', log_level=1).start(barrier=config.barrier_with_L1_time)
+
+    no_sync_func = config.no_sync_func
+    if no_sync_func is None:
+        no_sync_func = contextlib.nullcontext
+
+    model_type = get_model_type(model)
+
+    forward_data_store = []
+    input_tensor, output_tensor_grad = None, None
+    total_num_tokens = torch.zeros([], dtype=torch.int, device="cuda")
+
+    args = get_args()
+    gradacc_broadcast_steps = args.gradacc_broadcast_steps
+
+    def metis_gradacc_broadcast_func():
+        stack = ExitStack()
+        stack.enter_context(load_svd_history())
+        return stack
+    # print("num_microbatches==",num_microbatches)
+    metis_gradacc_broadcast_ctx_func = metis_gradacc_broadcast_func
+    if config.overlap_moe_expert_parallel_comm and not forward_only:
+        forward_data_store, total_num_tokens = combined_1f1b_schedule_for_no_pipelining(
+            forward_step_func,
+            data_iterator,
+            model,
+            num_microbatches,
+            input_tensor,
+            output_tensor_grad,
+            forward_data_store,
+            config,
+            collect_non_loss_data,
+            first_val_step,
+            forward_only,
+            no_sync_func,
+            total_num_tokens,
+            partial(check_first_val_step, first_val_step, forward_only),
+        )
+    else:
+        with no_sync_func():
+            for i in range(num_microbatches - 1):
+                metis_gradacc_broadcast_ctx_func = metis_gradacc_broadcast_func
+                # print("mb number = ",i)
+                if i % gradacc_broadcast_steps == 0:
+                    # print(f"calcualte grad svd for mb == {i}")
+                    metis_gradacc_broadcast_ctx_func = contextlib.nullcontext
+
+                with metis_gradacc_broadcast_ctx_func():
+                    output_tensor, num_tokens = forward_step(
+                        forward_step_func,
+                        data_iterator,
+                        model,
+                        num_microbatches,
+                        input_tensor,
+                        forward_data_store,
+                        config,
+                        pg_collection.cp.size(),
+                        collect_non_loss_data,
+                        is_first_microbatch=check_first_val_step(first_val_step, forward_only, i == 0),
+                        current_microbatch=i,
+                    )
+                    total_num_tokens += num_tokens
+                    if not forward_only:
+                        backward_step(
+                            input_tensor, output_tensor, output_tensor_grad, model_type, config
+                        )
+                # print("----mb number = {i} end----")
+        # Run computation for last microbatch out of context handler (want to
+        # synchronize gradients).
+        # print("mb number = ",num_microbatches-1)
+        metis_gradacc_broadcast_ctx_func = metis_gradacc_broadcast_func
+        if (num_microbatches-1) % gradacc_broadcast_steps == 0:
+            # print(f"calcualte grad svd for mb == {(num_microbatches-1)}")
+            metis_gradacc_broadcast_ctx_func = contextlib.nullcontext
+        with metis_gradacc_broadcast_ctx_func():
+            output_tensor, num_tokens = forward_step(
+                forward_step_func,
+                data_iterator,
+                model,
+                num_microbatches,
+                input_tensor,
+                forward_data_store,
+                config,
+                pg_collection.cp.size(),
+                collect_non_loss_data,
+                is_first_microbatch=check_first_val_step(
+                    first_val_step, forward_only, num_microbatches == 1
+                ),
+                current_microbatch=num_microbatches - 1,
+            )
+
+        total_num_tokens += num_tokens
+
+        if not forward_only:
+            backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config)
+
+    if config.finalize_model_grads_func is not None and not forward_only:
+        # Finalize model grads (perform full grad all-reduce / reduce-scatter for
+        # data parallelism and layernorm all-reduce for sequence parallelism).
         config.finalize_model_grads_func(
             [model],
             total_num_tokens if config.calculate_per_token_loss else None,
