@@ -423,6 +423,9 @@ class TransformerConfig(ModelParallelConfig):
     use_metis: bool = False
     """If set, enables the use of Metis quantization methods for FP4 precision training"""
 
+    metis_recipe: str = "metis_te"
+    """Method to use for Metis quantization."""
+
     # fp4_method: str = "te_fp4"
     # """Method to use for FP4 quantization. Only support te_fp4, metis_fp4 and metis_persudo_fp4"""
 

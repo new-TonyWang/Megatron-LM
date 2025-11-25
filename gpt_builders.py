@@ -125,7 +125,7 @@ def _get_transformer_layer_spec(use_te, config):
             qk_l2_norm=args.qk_l2_norm,
             use_kitchen=config.use_kitchen,
             use_metis=config.use_metis,
-            metis_fp4_recipe=config.fp4_recipe,
+            metis_recipe=config.metis_recipe,
             
         )
     else:
@@ -137,5 +137,5 @@ def _get_transformer_layer_spec(use_te, config):
             moe_use_legacy_grouped_gemm=args.moe_use_legacy_grouped_gemm,
             normalization=args.normalization,
             use_kitchen=config.use_kitchen,
-            metis_fp4_recipe=config.fp4_recipe,
+            metis_recipe=config.metis_recipe,
         )

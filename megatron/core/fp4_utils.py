@@ -6,7 +6,7 @@ from contextlib import nullcontext, ExitStack
 
 import torch
 
-from megatron.core.enums import Fp4Recipe
+from megatron.core.enums import Fp4Recipe, MetisRecipe
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.utils import is_te_min_version
 
@@ -191,15 +191,13 @@ def get_metis_persudo_fp4_context(config: TransformerConfig, layer_no: int = -1,
         elif layer_no >= 0 and config.first_last_layers_bf16 and (is_first_layer or is_last_layer):
             fp4_context = nullcontext()
         else:
-            if config.fp4_recipe == Fp4Recipe.metis_persudo:
+            if config.metis_recipe == MetisRecipe.metis_persudo:
                 fp4_context = get_metis_context(**apply_lowbit_config_from_transformer(config))
-            elif config.fp4_recipe == Fp4Recipe.metis_te_fp4:
-                config.fp4_recipe = Fp4Recipe.nvfp4
+            elif config.metis_recipe == MetisRecipe.metis_te:
                 stack = ExitStack()
                 stack.enter_context(get_fp4_context(config, layer_no, is_init))
                 stack.enter_context(get_metis_context(**apply_lowbit_config_from_transformer(config)))
                 fp4_context = stack
-                config.fp4_recipe = Fp4Recipe.metis_te_fp4
             else:
                 raise ValueError(
                     f"Unsupported fp4_recipe {config.fp4_recipe} for metis context."

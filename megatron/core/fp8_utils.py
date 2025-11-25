@@ -3,13 +3,13 @@
 """Utility functions related to FP8 that are used throughout Megatron core"""
 
 import weakref
-from contextlib import nullcontext
+from contextlib import nullcontext, ExitStack
 from functools import wraps
 from typing import List, Optional
 
 import torch
 
-from megatron.core.enums import Fp8Recipe
+from megatron.core.enums import Fp8Recipe, MetisRecipe
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.utils import get_te_version, is_te_min_version
 
@@ -649,3 +649,69 @@ else:
             "prepare_model_for_fp8_inference requires Transformer Engine to be installed. "
             "Please install transformer-engine to use FP8 inference."
         )
+def apply_lowbit_config_from_transformer(cfg_obj: TransformerConfig):
+    """
+    自动从 TransformerConfig 对象提取同名字段，并调用 LinearLowbitFunction.ctx_config.config()
+    """
+    # 所有 LinearLowbitContext 支持的字段
+    function_mapping_keys = [
+        "q_forward_input",
+        "q_forward_weight",
+        "q_backward_input",
+        "q_backward_weight",
+        "q_backward_outputgrad",
+    ]
+    context_keys = [
+        "q_scalar",
+        "enable_activation_svd",
+        "activation_lowrank_svd",
+        "activation_lowrank_niter",
+        "activation_broadcast_dim",
+        "activation_longtail_schedule",
+        "enable_backward_svd",
+        "backward_lowrank_svd",
+        "backward_lowrank_niter",
+        "backward_broadcast_dim",
+        "backward_longtail_schedule",
+        "enable_lowbit",
+        "forward_svd_rank",
+        "enable_weight_svd",
+        "gradacc_broadcast",
+        "gradacc_broadcast_steps"
+    ]
+    # print("cfg_obj==",cfg_obj)
+    # 从 cfg_obj 提取存在的字段
+    func_mapping_args = {k: getattr(cfg_obj, k) for k in function_mapping_keys if hasattr(cfg_obj, k)}
+    args = {k: getattr(cfg_obj, k) for k in context_keys if hasattr(cfg_obj, k)}
+    args.update(func_mapping_args)
+    # 使用 with 上下文配置
+    return args
+def get_metis_fp8_context(config: TransformerConfig, layer_no: int = -1, is_init: bool = False):
+        from transformer_engine.pytorch.module.metis.metis_context import  get_metis_context
+        """Return fp4 context manager."""
+        num_bf16_layers_at_start = (
+            config.num_layers_at_start_in_bf16 if config.first_last_layers_bf16 else 0
+        )
+        num_bf16_layers_at_end = (
+            config.num_layers_at_end_in_bf16 if config.first_last_layers_bf16 else 0
+        )
+        is_first_layer = layer_no < num_bf16_layers_at_start
+        is_last_layer = layer_no >= config.num_layers - num_bf16_layers_at_end
+
+        need_fp4_context = config.fp8 if not is_init else config.fp8_param
+        # print(f"get_metis_persudo_fp4_context,config={config},is_init={is_init},layer_no={layer_no},need_fp4_context={need_fp4_context} ")
+        if not need_fp4_context:
+            fp4_context = nullcontext()
+        elif layer_no >= 0 and config.first_last_layers_bf16 and (is_first_layer or is_last_layer):
+            fp4_context = nullcontext()
+        else:
+            if config.metis_recipe == MetisRecipe.metis_te:
+                stack = ExitStack()
+                stack.enter_context(get_fp8_context(config, layer_no, is_init))
+                stack.enter_context(get_metis_context(**apply_lowbit_config_from_transformer(config)))
+                fp4_context = stack
+            else:
+                raise ValueError(
+                    f"Unsupported fp4_recipe {config.fp4_recipe} for metis context."
+                )
+        return fp4_context

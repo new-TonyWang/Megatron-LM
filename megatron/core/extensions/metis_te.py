@@ -104,7 +104,7 @@ class MetisTELinear(te.pytorch.MetisLinear):
                 "Transformer Engine is not installed. "
                 "Please install it with `pip install transformer-engine`."
             )
-        assert config.tensor_model_parallel_size == 1,"Metis TELinear only supports tensor_model_parallel_size=1 for now."
+        # assert config.tensor_model_parallel_size == 1,"Metis TELinear only supports tensor_model_parallel_size=1 for now."
         
         self.config = config
 

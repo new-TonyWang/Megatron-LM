@@ -67,7 +67,7 @@ except ImportError:
     warnings.warn("Apex is not installed. Falling back to Torch Norm")
     LNImpl = WrappedTorchNorm
     HAVE_APEX = False
-from megatron.core.enums import Fp4Recipe
+from megatron.core.enums import MetisRecipe
 
 
 def get_gpt_layer_with_transformer_engine_spec(
@@ -82,7 +82,7 @@ def get_gpt_layer_with_transformer_engine_spec(
     use_kitchen: bool = False,
     use_te_activation_func: bool = False,
     use_metis:bool = False,
-    metis_fp4_recipe:  Optional[Fp4Recipe] = None,
+    metis_recipe:  Optional[MetisRecipe] = None,
 ) -> ModuleSpec:
     """Use this spec to use lower-level Transformer Engine modules (required for fp8 training).
 
@@ -118,9 +118,9 @@ def get_gpt_layer_with_transformer_engine_spec(
 
     elif use_metis:
         from megatron.core.extensions.metis_spec_provider import MetisPersudoTeSpecProvider, MetisTeSpecProvider
-        if metis_fp4_recipe == Fp4Recipe.metis_persudo:
+        if metis_recipe == MetisRecipe.metis_persudo:
             backend = MetisPersudoTeSpecProvider()
-        elif metis_fp4_recipe == Fp4Recipe.metis_te_fp4:
+        elif metis_recipe == MetisRecipe.metis_te:
             backend = MetisTeSpecProvider()
         else:
             raise ValueError(
@@ -250,7 +250,7 @@ def get_gpt_layer_local_spec(
     normalization: Optional[str] = None,
     qk_l2_norm: Optional[bool] = False,
     use_kitchen: bool = False,
-    metis_fp4_recipe:  Optional[Fp4Recipe] = None,
+    metis_recipe:  Optional[MetisRecipe] = None,
 ) -> ModuleSpec:
     """Use this spec for an implementation using only modules in Megatron-Core.
 
@@ -271,7 +271,7 @@ def get_gpt_layer_local_spec(
     if use_kitchen:
         assert HAVE_KITCHEN
         backend = KitchenSpecProvider(fallback=LocalSpecProvider())
-    elif metis_fp4_recipe == Fp4Recipe.metis_persudo:
+    elif metis_recipe == MetisRecipe.metis_persudo:
         backend = MetisSpecProvider()
     else:
         backend = LocalSpecProvider()

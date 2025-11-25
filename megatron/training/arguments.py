@@ -3331,6 +3331,7 @@ def _add_sft_args(parser):
 def _add_metis_args(parser):
     group = parser.add_argument_group(title='metis')
     group.add_argument("--use-metis", action='store_true')
+    group.add_argument("--metis-recipe", type=str, default="metis_te")
     # group.add_argument("--fp4-method", type=str, default="fp4e2m1")
     group.add_argument("--q-forward-input", type=str, default="fp4e2m1")
     group.add_argument("--q-forward-weight", type=str, default="fp4e2m1")
