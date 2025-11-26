@@ -121,18 +121,20 @@ def get_forward_backward_func():
         which have different shape handling.
 
     """
-    from megatron.training import get_args, print_rank_0
+    from megatron.training import get_args
     args = get_args()
     pipeline_model_parallel_size = parallel_state.get_pipeline_model_parallel_world_size()
     if pipeline_model_parallel_size > 1:
-        if parallel_state.get_virtual_pipeline_model_parallel_world_size() is not None:
+        if args.enable_metis:
+            forward_backward_func = forward_backward_pipelining_without_interleaving_metis
+        elif parallel_state.get_virtual_pipeline_model_parallel_world_size() is not None:
             forward_backward_func = forward_backward_pipelining_with_interleaving
         else:
             forward_backward_func = forward_backward_pipelining_without_interleaving
-    elif args.enable_metis:
-        forward_backward_func = forward_backward_no_pipelining_metis
     else:
         forward_backward_func = forward_backward_no_pipelining
+        if args.enable_metis:
+            forward_backward_func = forward_backward_no_pipelining_metis
     return forward_backward_func
 
 
@@ -2323,7 +2325,7 @@ def forward_backward_no_pipelining_metis(
 ):
     from .metis_utils import metis_gradacc_broadcast_func,no_use_and_low_rank_metis_forward_func
     """Run forward and backward passes with no pipeline parallelism"""
-    from megatron.training import get_args, print_rank_0
+    from megatron.training import get_args
     if pg_collection is None:
         tp_group = parallel_state.get_tensor_model_parallel_group()
         cp_group = parallel_state.get_context_parallel_group()
@@ -2512,6 +2514,7 @@ def forward_backward_pipelining_without_interleaving_metis(
     pg_collection: Optional[ProcessGroupCollection] = None,
 ):
     from .metis_utils import metis_gradacc_broadcast_func,no_use_and_low_rank_metis_forward_func
+    from megatron.training import get_args
     """Run non-interleaved 1F1B schedule, with communication between pipeline
     stages. Returns dictionary with losses if the last stage, empty dict otherwise."""
 
@@ -2671,11 +2674,11 @@ def forward_backward_pipelining_without_interleaving_metis(
         input_tensors = []
         output_tensors = []
     forward_data_store = []
-    print(f"p2p_communicator.pp_group.rank()=={p2p_communicator.pp_group.rank()}, warmup microbatches={num_warmup_microbatches}, remaining microbatches={num_microbatches_remaining}")
+    # print(f"p2p_communicator.pp_group.rank()=={p2p_communicator.pp_group.rank()}, warmup microbatches={num_warmup_microbatches}, remaining microbatches={num_microbatches_remaining}")
     
     metis_controller_ctx_func = metis_gradacc_broadcast_func
     if forward_only:
-        print("using bf16 dtype running forward only")
+        # print("using bf16 dtype running forward only")
         metis_controller_ctx_func = no_use_and_low_rank_metis_forward_func
 
 
@@ -2699,10 +2702,10 @@ def forward_backward_pipelining_without_interleaving_metis(
         if forward_only:
             metis_controller_ctx_func = no_use_and_low_rank_metis_forward_func
         elif i % gradacc_broadcast_steps == 0:
-            print(f"1f1b warmup pp rank== {p2p_communicator.pp_group.rank()}, mbn={i}, calaulate grad svd")
+            # print(f"1f1b warmup pp rank== {p2p_communicator.pp_group.rank()}, mbn={i}, calaulate grad svd")
             metis_controller_ctx_func = contextlib.nullcontext
-        else:
-            print(f"1f1b warmup pp rank== {p2p_communicator.pp_group.rank()}, mbn={i}, load grad svd")
+        # else:
+        #     print(f"1f1b warmup pp rank== {p2p_communicator.pp_group.rank()}, mbn={i}, load grad svd")
         with metis_controller_ctx_func():
             output_tensor, num_tokens = forward_step(
                 forward_step_func,
@@ -2752,10 +2755,10 @@ def forward_backward_pipelining_without_interleaving_metis(
         if forward_only:
             metis_controller_ctx_func = no_use_and_low_rank_metis_forward_func
         elif (i + num_warmup_microbatches) % gradacc_broadcast_steps == 0:
-            print(f"1f1b state pp rank== {p2p_communicator.pp_group.rank()}, mbn={i}, calaulate grad svd")
+            # print(f"1f1b state pp rank== {p2p_communicator.pp_group.rank()}, mbn={i}, calaulate grad svd")
             metis_controller_ctx_func = contextlib.nullcontext
-        else:
-            print(f"1f1b state pp rank== {p2p_communicator.pp_group.rank()}, mbn={i}, load grad svd")
+        # else:
+        #     print(f"1f1b state pp rank== {p2p_communicator.pp_group.rank()}, mbn={i}, load grad svd")
         with metis_controller_ctx_func():
             output_tensor, num_tokens = forward_step(
                 forward_step_func,
