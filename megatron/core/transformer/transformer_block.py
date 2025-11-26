@@ -667,16 +667,23 @@ class TransformerBlock(GraphableMegatronModule, MegatronModule):
         # control which layer will be fp8 or bf16
         # For FP4: NVFP4BlockScaling doesn't have delayed scaling, always uses inner context
         if self.config.fp8:
+            from transformer_engine.pytorch.module.metis.metis_context import LinearLowbitContext
             use_outer_quantization_context = self.config.fp8_recipe == Fp8Recipe.delayed
             use_inner_quantization_context = self.config.fp8_recipe != Fp8Recipe.delayed
             outer_quantization_context = (
                 get_fp8_context(self.config) if use_outer_quantization_context else nullcontext()
             )
         elif self.config.fp4:
-            if self.config.enable_metis:
             use_outer_quantization_context = False
-            use_inner_quantization_context = True
             outer_quantization_context = nullcontext()
+            from transformer_engine.pytorch.module.metis.metis_context import LinearLowbitContext
+            if self.config.enable_metis:
+                use_inner_quantization_context = True
+                if not LinearLowbitContext.use_metis:
+                    ## turn off inner context if metis is not used
+                    use_inner_quantization_context = False
+            else:
+                use_inner_quantization_context = True
         else:
             # No quantization
             use_outer_quantization_context = False
