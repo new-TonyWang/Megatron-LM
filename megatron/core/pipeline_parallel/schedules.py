@@ -32,7 +32,7 @@ from .combined_1f1b import (
     combined_1f1b_schedule_for_interleaved_pipelining,
     combined_1f1b_schedule_for_no_pipelining,
 )
-from contextlib import ExitStack
+
 # Types
 Shape = Union[List[int], torch.Size]
 
@@ -2089,7 +2089,7 @@ def forward_backward_pipelining_without_interleaving(
         max_outstanding_backprops = num_warmup_microbatches + 1
 
     model_type = get_model_type(model)
-
+    # print(f"p2p_communicator.pp_group.rank()=={p2p_communicator.pp_group.rank()}, num_microbatches={num_microbatches} ,warmup microbatches={num_warmup_microbatches}, remaining microbatches={num_microbatches_remaining}")
     rank = p2p_communicator.pp_group.rank()
     recv_tensor_shapes = get_tensor_shapes(
         seq_length=seq_length,
@@ -2321,8 +2321,8 @@ def forward_backward_no_pipelining_metis(
     adjust_tensor_shapes_fn: Optional[Callable] = None,  # unused
     pg_collection: Optional[ProcessGroupCollection] = None,
 ):
+    from .metis_utils import metis_gradacc_broadcast_func,no_use_and_low_rank_metis_forward_func
     """Run forward and backward passes with no pipeline parallelism"""
-    from transformer_engine.pytorch.module import  load_svd_history, no_use_metis
     from megatron.training import get_args, print_rank_0
     if pg_collection is None:
         tp_group = parallel_state.get_tensor_model_parallel_group()
@@ -2387,16 +2387,6 @@ def forward_backward_no_pipelining_metis(
 
     args = get_args()
     gradacc_broadcast_steps = args.gradacc_broadcast_steps
-
-    def metis_gradacc_broadcast_func():
-        stack = ExitStack()
-        stack.enter_context(load_svd_history())
-        return stack
-
-    def no_use_and_low_rank_metis_forward_func():
-        stack = ExitStack()
-        stack.enter_context(no_use_metis())
-        return stack
 
     # print("num_microbatches==",num_microbatches)
     metis_controller_ctx_func = metis_gradacc_broadcast_func
@@ -2521,6 +2511,7 @@ def forward_backward_pipelining_without_interleaving_metis(
     p2p_communicator: Optional[P2PCommunicator] = None,
     pg_collection: Optional[ProcessGroupCollection] = None,
 ):
+    from .metis_utils import metis_gradacc_broadcast_func,no_use_and_low_rank_metis_forward_func
     """Run non-interleaved 1F1B schedule, with communication between pipeline
     stages. Returns dictionary with losses if the last stage, empty dict otherwise."""
 
@@ -2667,6 +2658,10 @@ def forward_backward_pipelining_without_interleaving_metis(
             recv_tensor_shapes, send_tensor_shapes
         )
 
+    args = get_args()
+    gradacc_broadcast_steps = args.gradacc_broadcast_steps
+    
+    
     # Input, output tensors only need to be saved when doing backward passes
     input_tensors = None
     output_tensors = None
@@ -2676,6 +2671,13 @@ def forward_backward_pipelining_without_interleaving_metis(
         input_tensors = []
         output_tensors = []
     forward_data_store = []
+    print(f"p2p_communicator.pp_group.rank()=={p2p_communicator.pp_group.rank()}, warmup microbatches={num_warmup_microbatches}, remaining microbatches={num_microbatches_remaining}")
+    
+    metis_controller_ctx_func = metis_gradacc_broadcast_func
+    if forward_only:
+        print("using bf16 dtype running forward only")
+        metis_controller_ctx_func = no_use_and_low_rank_metis_forward_func
+
 
     # Run warmup forward passes.
     for i in range(num_warmup_microbatches):
@@ -2691,21 +2693,32 @@ def forward_backward_pipelining_without_interleaving_metis(
         input_tensor = p2p_communicator.recv_forward(
             recv_tensor_shapes, is_pp_first_stage(p2p_communicator.pp_group)
         )
-        output_tensor, num_tokens = forward_step(
-            forward_step_func,
-            data_iterator,
-            model,
-            num_microbatches,
-            input_tensor,
-            forward_data_store,
-            config,
-            cp_group_size=pg_collection.cp.size(),
-            collect_non_loss_data=collect_non_loss_data,
-            checkpoint_activations_microbatch=checkpoint_activations_microbatch,
-            is_first_microbatch=check_first_val_step(first_val_step, forward_only, i == 0),
-            current_microbatch=i,
-            is_last_stage=is_pp_last_stage(p2p_communicator.pp_group),
-        )
+
+        metis_controller_ctx_func = metis_gradacc_broadcast_func
+
+        if forward_only:
+            metis_controller_ctx_func = no_use_and_low_rank_metis_forward_func
+        elif i % gradacc_broadcast_steps == 0:
+            print(f"1f1b warmup pp rank== {p2p_communicator.pp_group.rank()}, mbn={i}, calaulate grad svd")
+            metis_controller_ctx_func = contextlib.nullcontext
+        else:
+            print(f"1f1b warmup pp rank== {p2p_communicator.pp_group.rank()}, mbn={i}, load grad svd")
+        with metis_controller_ctx_func():
+            output_tensor, num_tokens = forward_step(
+                forward_step_func,
+                data_iterator,
+                model,
+                num_microbatches,
+                input_tensor,
+                forward_data_store,
+                config,
+                cp_group_size=pg_collection.cp.size(),
+                collect_non_loss_data=collect_non_loss_data,
+                checkpoint_activations_microbatch=checkpoint_activations_microbatch,
+                is_first_microbatch=check_first_val_step(first_val_step, forward_only, i == 0),
+                current_microbatch=i,
+                is_last_stage=is_pp_last_stage(p2p_communicator.pp_group),
+            )
         p2p_communicator.send_forward(output_tensor, is_pp_last_stage(p2p_communicator.pp_group))
         total_num_tokens += num_tokens
 
@@ -2734,23 +2747,33 @@ def forward_backward_pipelining_without_interleaving_metis(
         else:
             checkpoint_activations_microbatch = None
 
-        output_tensor, num_tokens = forward_step(
-            forward_step_func,
-            data_iterator,
-            model,
-            num_microbatches,
-            input_tensor,
-            forward_data_store,
-            config,
-            cp_group_size=pg_collection.cp.size(),
-            collect_non_loss_data=collect_non_loss_data,
-            checkpoint_activations_microbatch=checkpoint_activations_microbatch,
-            is_first_microbatch=check_first_val_step(
-                first_val_step, forward_only, (i == 0) and (num_warmup_microbatches == 0)
-            ),
-            current_microbatch=i + num_warmup_microbatches,
-            is_last_stage=is_pp_last_stage(p2p_communicator.pp_group),
-        )
+        metis_controller_ctx_func = metis_gradacc_broadcast_func
+
+        if forward_only:
+            metis_controller_ctx_func = no_use_and_low_rank_metis_forward_func
+        elif (i + num_warmup_microbatches) % gradacc_broadcast_steps == 0:
+            print(f"1f1b state pp rank== {p2p_communicator.pp_group.rank()}, mbn={i}, calaulate grad svd")
+            metis_controller_ctx_func = contextlib.nullcontext
+        else:
+            print(f"1f1b state pp rank== {p2p_communicator.pp_group.rank()}, mbn={i}, load grad svd")
+        with metis_controller_ctx_func():
+            output_tensor, num_tokens = forward_step(
+                forward_step_func,
+                data_iterator,
+                model,
+                num_microbatches,
+                input_tensor,
+                forward_data_store,
+                config,
+                cp_group_size=pg_collection.cp.size(),
+                collect_non_loss_data=collect_non_loss_data,
+                checkpoint_activations_microbatch=checkpoint_activations_microbatch,
+                is_first_microbatch=check_first_val_step(
+                    first_val_step, forward_only, (i == 0) and (num_warmup_microbatches == 0)
+                ),
+                current_microbatch=i + num_warmup_microbatches,
+                is_last_stage=is_pp_last_stage(p2p_communicator.pp_group),
+            )
         total_num_tokens += num_tokens
 
         if forward_only:
