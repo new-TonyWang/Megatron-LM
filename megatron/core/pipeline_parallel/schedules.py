@@ -129,7 +129,7 @@ def get_forward_backward_func():
             forward_backward_func = forward_backward_pipelining_with_interleaving
         else:
             forward_backward_func = forward_backward_pipelining_without_interleaving
-    elif args.use_metis:
+    elif args.enable_metis:
         forward_backward_func = forward_backward_no_pipelining_metis
     else:
         forward_backward_func = forward_backward_no_pipelining
@@ -2322,7 +2322,7 @@ def forward_backward_no_pipelining_metis(
     pg_collection: Optional[ProcessGroupCollection] = None,
 ):
     """Run forward and backward passes with no pipeline parallelism"""
-    from transformer_engine.pytorch.module import  load_svd_history
+    from transformer_engine.pytorch.module import  load_svd_history, no_use_metis
     from megatron.training import get_args, print_rank_0
     if pg_collection is None:
         tp_group = parallel_state.get_tensor_model_parallel_group()
@@ -2394,6 +2394,12 @@ def forward_backward_no_pipelining_metis(
         return stack
     # print("num_microbatches==",num_microbatches)
     metis_gradacc_broadcast_ctx_func = metis_gradacc_broadcast_func
+    if forward_only:
+        def no_use_and_low_rank_metis_forward_func():
+            stack = ExitStack()
+            stack.enter_context(no_use_metis())
+            return stack
+
     if config.overlap_moe_expert_parallel_comm and not forward_only:
         forward_data_store, total_num_tokens = combined_1f1b_schedule_for_no_pipelining(
             forward_step_func,

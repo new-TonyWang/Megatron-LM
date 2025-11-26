@@ -81,7 +81,7 @@ def get_gpt_layer_with_transformer_engine_spec(
     use_te_op_fuser: Optional[bool] = False,
     use_kitchen: bool = False,
     use_te_activation_func: bool = False,
-    use_metis:bool = False,
+    enable_metis:bool = False,
     metis_recipe:  Optional[MetisRecipe] = None,
 ) -> ModuleSpec:
     """Use this spec to use lower-level Transformer Engine modules (required for fp8 training).
@@ -116,7 +116,7 @@ def get_gpt_layer_with_transformer_engine_spec(
         if use_te_activation_func:
             raise AssertionError("use_te_activation_func not compatible with using kitchen.")
 
-    elif use_metis:
+    elif enable_metis:
         from megatron.core.extensions.metis_spec_provider import MetisPersudoTeSpecProvider, MetisTeSpecProvider
         if metis_recipe == MetisRecipe.metis_persudo:
             backend = MetisPersudoTeSpecProvider()
@@ -175,7 +175,7 @@ def get_gpt_layer_with_transformer_engine_spec(
                 mlp_bda=get_bias_dropout_add,
             ),
         )
-    elif use_metis:
+    elif enable_metis:
         from megatron.core.extensions.metis_spec_provider import MetisSpecProviderBase,MetisSpecProvider,MetisPersudoTeSpecProvider,MetisTeSpecProvider
         qk_norm = backend.layer_norm(for_qk=True)
         return ModuleSpec(

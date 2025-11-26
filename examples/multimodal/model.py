@@ -34,7 +34,7 @@ def model_provider(
     """
     args = get_args()
     use_te = args.use_te
-    use_metis = args.use_metis
+    enable_metis = args.enable_metis
 
     print_rank_0('building a multimodal model ...')
 

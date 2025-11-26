@@ -124,7 +124,7 @@ def _get_transformer_layer_spec(use_te, config):
             moe_use_legacy_grouped_gemm=args.moe_use_legacy_grouped_gemm,
             qk_l2_norm=args.qk_l2_norm,
             use_kitchen=config.use_kitchen,
-            use_metis=config.use_metis,
+            enable_metis=config.enable_metis,
             metis_recipe=config.metis_recipe,
             
         )

@@ -420,7 +420,7 @@ class TransformerConfig(ModelParallelConfig):
     together with fp4 mode (i.e., TransformerConfig.fp4 is not None). Note that not all parameters
     will be converted to fp4; for example, biases will remain unchanged."""
 
-    use_metis: bool = False
+    enable_metis: bool = False
     """If set, enables the use of Metis quantization methods for FP4 precision training"""
 
     metis_recipe: str = "metis_te"
