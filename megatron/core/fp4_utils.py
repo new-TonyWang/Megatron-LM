@@ -184,7 +184,7 @@ def get_metis_persudo_fp4_context(config: TransformerConfig, layer_no: int = -1,
         is_first_layer = layer_no < num_bf16_layers_at_start
         is_last_layer = layer_no >= config.num_layers - num_bf16_layers_at_end
 
-        need_fp4_context = config.fp4 if not is_init else config.fp4_param
+        need_fp4_context = config.fp4 if not is_init else config.enable_weight_svd
         # print(f"get_metis_persudo_fp4_context,config={config},is_init={is_init},layer_no={layer_no},need_fp4_context={need_fp4_context} ")
         if not need_fp4_context:
             fp4_context = nullcontext()
