@@ -649,45 +649,9 @@ else:
             "prepare_model_for_fp8_inference requires Transformer Engine to be installed. "
             "Please install transformer-engine to use FP8 inference."
         )
-def apply_lowbit_config_from_transformer(cfg_obj: TransformerConfig):
-    """
-    自动从 TransformerConfig 对象提取同名字段，并调用 LinearLowbitFunction.ctx_config.config()
-    """
-    # 所有 LinearLowbitContext 支持的字段
-    function_mapping_keys = [
-        "q_forward_input",
-        "q_forward_weight",
-        "q_backward_input",
-        "q_backward_weight",
-        "q_backward_outputgrad",
-    ]
-    context_keys = [
-        "q_scalar",
-        "enable_activation_svd",
-        "activation_lowrank_svd",
-        "activation_lowrank_niter",
-        "activation_broadcast_dim",
-        "activation_longtail_schedule",
-        "enable_backward_svd",
-        "backward_lowrank_svd",
-        "backward_lowrank_niter",
-        "backward_broadcast_dim",
-        "backward_longtail_schedule",
-        "enable_lowbit",
-        "forward_svd_rank",
-        "enable_weight_svd",
-        "gradacc_broadcast",
-        "gradacc_broadcast_steps"
-    ]
-    # print("cfg_obj==",cfg_obj)
-    # 从 cfg_obj 提取存在的字段
-    func_mapping_args = {k: getattr(cfg_obj, k) for k in function_mapping_keys if hasattr(cfg_obj, k)}
-    args = {k: getattr(cfg_obj, k) for k in context_keys if hasattr(cfg_obj, k)}
-    args.update(func_mapping_args)
-    # 使用 with 上下文配置
-    return args
+
 def get_metis_fp8_context(config: TransformerConfig, layer_no: int = -1, is_init: bool = False):
-        from transformer_engine.pytorch.module.metis.metis_context import  get_metis_context
+        from transformer_engine.pytorch.module.metis.metis_context import  get_metis_context, get_metis_context_param_names
         """Return fp4 context manager."""
         num_bf16_layers_at_start = (
             config.num_layers_at_start_in_bf16 if config.first_last_layers_bf16 else 0
@@ -705,10 +669,12 @@ def get_metis_fp8_context(config: TransformerConfig, layer_no: int = -1, is_init
         elif layer_no >= 0 and config.first_last_layers_bf16 and (is_first_layer or is_last_layer):
             fp4_context = nullcontext()
         else:
+            metis_context_keys = get_metis_context_param_names()
+            args = {k: getattr(config, k) for k in metis_context_keys if hasattr(config, k)}
             if config.metis_recipe == MetisRecipe.metis_te:
                 stack = ExitStack()
                 stack.enter_context(get_fp8_context(config, layer_no, is_init))
-                stack.enter_context(get_metis_context(**apply_lowbit_config_from_transformer(config)))
+                stack.enter_context(get_metis_context(**args))
                 fp4_context = stack
             else:
                 raise ValueError(
