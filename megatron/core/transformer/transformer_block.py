@@ -11,8 +11,8 @@ from megatron.core import parallel_state, tensor_parallel
 from megatron.core.dist_checkpointing.mapping import ShardedStateDict
 from megatron.core.dist_checkpointing.utils import replace_prefix_for_sharding
 from megatron.core.enums import Fp8Recipe
-from megatron.core.fp4_utils import get_fp4_context
-from megatron.core.fp8_utils import get_fp8_context
+from megatron.core.fp4_utils import get_fp4_context, get_metis_persudo_fp4_context
+from megatron.core.fp8_utils import get_fp8_context, get_metis_fp8_context
 from megatron.core.fusions.fused_layer_norm import FusedLayerNorm
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.packed_seq_params import PackedSeqParams
@@ -262,7 +262,7 @@ def _get_block_submodules(
     else:
         raise Exception(f"specialize for {type(spec).__name__}.")
 
-
+import debugpy
 class TransformerBlock(GraphableMegatronModule, MegatronModule):
     """Transformer class."""
 
@@ -339,10 +339,18 @@ class TransformerBlock(GraphableMegatronModule, MegatronModule):
                 layer_config = self.config.get_config_for_layer(global_layer_number)
             else:
                 layer_config = self.config
-
+            # debugpy.breakpoint()
             # Get appropriate quantization context (FP8 and FP4 are mutually exclusive)
-            if layer_config.fp8:
+            if self.config.enable_metis and self.config.fp8:
+                quantization_context = get_metis_fp8_context(
+                    self.config, global_layer_number - 1, is_init=True
+                )            
+            elif layer_config.fp8:
                 quantization_context = get_fp8_context(
+                    layer_config, global_layer_number - 1, is_init=True
+                )
+            elif layer_config.enable_metis and layer_config.fp4:
+                quantization_context = get_metis_persudo_fp4_context(
                     layer_config, global_layer_number - 1, is_init=True
                 )
             elif layer_config.fp4:
@@ -408,17 +416,28 @@ class TransformerBlock(GraphableMegatronModule, MegatronModule):
 
                     # Get appropriate inner quantization context
                     if use_inner_quantization_context:
-                        if self.config.fp8:
-                            inner_quantization_context = get_fp8_context(
-                                self.config, layer.layer_number - 1
-                            )
-                        # TODO: check if fp4 is supported in this case
-                        elif self.config.fp4:
-                            inner_quantization_context = get_fp4_context(
-                                self.config, layer.layer_number - 1
-                            )
+                        if self.config.enable_metis and self.config.fp8:
+                            if self.config.fp8:
+                                inner_quantization_context = get_metis_fp8_context(
+                                    self.config, layer.layer_number - 1
+                                )
+                            elif self.config.fp4:
+                                inner_quantization_context = get_metis_persudo_fp4_context(
+                                    self.config, layer.layer_number - 1
+                                )
+                            else:
+                                inner_quantization_context = nullcontext()
                         else:
-                            inner_quantization_context = nullcontext()
+                            if self.config.fp8:
+                                inner_quantization_context = get_fp8_context(
+                                    self.config, layer.layer_number - 1
+                                )
+                            elif self.config.fp4:
+                                inner_quantization_context = get_fp4_context(
+                                    self.config, layer.layer_number - 1
+                                )
+                            else:
+                                inner_quantization_context = nullcontext()
                     else:
                         inner_quantization_context = nullcontext()
 
@@ -648,6 +667,7 @@ class TransformerBlock(GraphableMegatronModule, MegatronModule):
         # control which layer will be fp8 or bf16
         # For FP4: NVFP4BlockScaling doesn't have delayed scaling, always uses inner context
         if self.config.fp8:
+            from transformer_engine.pytorch.module.metis.metis_context import LinearLowbitContext
             use_outer_quantization_context = self.config.fp8_recipe == Fp8Recipe.delayed
             use_inner_quantization_context = self.config.fp8_recipe != Fp8Recipe.delayed
             outer_quantization_context = (
@@ -655,8 +675,15 @@ class TransformerBlock(GraphableMegatronModule, MegatronModule):
             )
         elif self.config.fp4:
             use_outer_quantization_context = False
-            use_inner_quantization_context = True
             outer_quantization_context = nullcontext()
+            from transformer_engine.pytorch.module.metis.metis_context import LinearLowbitContext
+            if self.config.enable_metis:
+                use_inner_quantization_context = True
+                if not LinearLowbitContext.use_metis:
+                    ## turn off inner context if metis is not used
+                    use_inner_quantization_context = False
+            else:
+                use_inner_quantization_context = True
         else:
             # No quantization
             use_outer_quantization_context = False
@@ -680,16 +707,28 @@ class TransformerBlock(GraphableMegatronModule, MegatronModule):
                 for l_no, layer in enumerate(self.layers):
                     # Get appropriate inner quantization context
                     if use_inner_quantization_context:
-                        if self.config.fp8:
-                            inner_quantization_context = get_fp8_context(
-                                self.config, layer.layer_number - 1
-                            )
-                        elif self.config.fp4:
-                            inner_quantization_context = get_fp4_context(
-                                self.config, layer.layer_number - 1
-                            )
+                        if self.config.enable_metis and self.config.fp8:
+                            if self.config.fp8:
+                                inner_quantization_context = get_metis_fp8_context(
+                                    self.config, layer.layer_number - 1
+                                )
+                            elif self.config.fp4:
+                                inner_quantization_context = get_metis_persudo_fp4_context(
+                                    self.config, layer.layer_number - 1
+                                )
+                            else:
+                                inner_quantization_context = nullcontext()
                         else:
-                            inner_quantization_context = nullcontext()
+                            if self.config.fp8:
+                                inner_quantization_context = get_fp8_context(
+                                    self.config, layer.layer_number - 1
+                                )
+                            elif self.config.fp4:
+                                inner_quantization_context = get_fp4_context(
+                                    self.config, layer.layer_number - 1
+                                )
+                            else:
+                                inner_quantization_context = nullcontext()
                     else:
                         inner_quantization_context = nullcontext()
 

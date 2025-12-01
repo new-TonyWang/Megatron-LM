@@ -202,7 +202,8 @@ class Attention(MegatronModule, ABC):
             tp_comm_buffer_name='proj',
             tp_group=self.pg_collection.tp,
         )
-
+        # print("attention_linear_proj:", self.linear_proj)
+        # print(f"{self.config.fp8},{self.config.fp8_recipe},{is_te_min_version("2.6.0dev0")},{isinstance(self.linear_proj, TELinear)}")
         if (
             HAVE_TE
             and self.config.fp8
@@ -210,12 +211,13 @@ class Attention(MegatronModule, ABC):
             and is_te_min_version("2.6.0dev0")
             and isinstance(self.linear_proj, TELinear)
         ):
+            # print("set_save_original_input")
             # For fp8 training, the output of the fused core_attn is saved by itself, and
             # linear_proj also saves the quantized tensor of this output. Here we set the
             # linear_proj to save the original input tensors to avoid the extra memory usage of
             # the quantized tensor.
             set_save_original_input(self.linear_proj)
-
+        # print("end init attention")
     def _checkpointed_attention_forward(
         self,
         query,

@@ -37,7 +37,7 @@ try:
     HAVE_TE = True
 except ImportError:
     HAVE_TE = False
-
+import debugpy
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ class MLP(MegatronModule):
             tp_comm_buffer_name="fc1",
             tp_group=tp_group,
         )
-
+        # debugpy.breakpoint()
         if self.config.use_te_activation_func and not (submodules.activation_func is None):
             self.activation_func = build_module(submodules.activation_func, config=self.config)
         else:
@@ -143,7 +143,7 @@ class MLP(MegatronModule):
         nvtx_range_push(suffix="linear_fc1")
         intermediate_parallel, bias_parallel = self.linear_fc1(hidden_states)
         nvtx_range_pop(suffix="linear_fc1")
-
+        # debugpy.breakpoint()
         nvtx_range_push(suffix="activation")
         if self.config.use_te_activation_func:
             if bias_parallel is not None:

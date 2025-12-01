@@ -34,6 +34,8 @@ try:
 except ImportError:
     has_nvidia_modelopt = False
 
+import debugpy
+
 stimer = StragglerDetector()
 
 
@@ -223,7 +225,10 @@ def train_valid_test_datasets_provider(train_val_test_num_samples, vp_stage=None
 
 
 if __name__ == "__main__":
-
+    # debugpy.listen(5678)
+    # print("Waiting for debugger attach")
+    # debugpy.wait_for_client()
+    # debugpy.breakpoint()
     # Temporary for transition to core datasets
     train_valid_test_datasets_provider.is_distributed = True
 

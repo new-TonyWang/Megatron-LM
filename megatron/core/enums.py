@@ -32,3 +32,10 @@ class Fp4Recipe(str, enum.Enum):
     """FP4 recipe names: nvfp4."""
 
     nvfp4 = "nvfp4"
+    metis_te_fp4 = "metis_te_fp4"
+
+class MetisRecipe(str, enum.Enum):
+    """Metis recipe names: metis_te, metis_persudo."""
+
+    metis_te = "metis_te"
+    metis_persudo = "metis_persudo"

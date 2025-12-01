@@ -2,11 +2,11 @@
 
 """Utility functions related to FP4 that are used throughout Megatron core"""
 
-from contextlib import nullcontext
+from contextlib import nullcontext, ExitStack
 
 import torch
 
-from megatron.core.enums import Fp4Recipe
+from megatron.core.enums import Fp4Recipe, MetisRecipe
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.utils import is_te_min_version
 
@@ -19,7 +19,6 @@ try:
 except (ImportError, ModuleNotFoundError):
     # Transformer Engine not found
     pass
-
 
 # Check if Transformer Engine has class for fp4 tensors.
 HAVE_TE_FP4_TENSOR_CLASS = False
@@ -109,8 +108,8 @@ if HAVE_TE:
 
             if not is_init:
                 # TE currently uses fp8_autocast for fp8 and fp4 quantization.
-                fp4_context = transformer_engine.pytorch.fp8_autocast(
-                    enabled=True, fp8_recipe=fp4_recipe, fp8_group=fp4_group
+                fp4_context = transformer_engine.pytorch.autocast(
+                    enabled=True, recipe=fp4_recipe, amax_reduction_group=fp4_group
                 )
             else:
                 import inspect
@@ -134,3 +133,37 @@ else:
     def get_fp4_context(config: TransformerConfig, layer_no: int = -1, is_init: bool = False):
         """Return nullcontext when Transformer Engine is not available."""
         return nullcontext()
+
+def get_metis_persudo_fp4_context(config: TransformerConfig, layer_no: int = -1, is_init: bool = False):
+        from transformer_engine.pytorch.module.metis.metis_context import  get_metis_context, get_metis_context_param_names
+        """Return fp4 context manager."""
+        num_bf16_layers_at_start = (
+            config.num_layers_at_start_in_bf16 if config.first_last_layers_bf16 else 0
+        )
+        num_bf16_layers_at_end = (
+            config.num_layers_at_end_in_bf16 if config.first_last_layers_bf16 else 0
+        )
+        is_first_layer = layer_no < num_bf16_layers_at_start
+        is_last_layer = layer_no >= config.num_layers - num_bf16_layers_at_end
+
+        need_fp4_context = config.fp4 if not is_init else config.enable_weight_svd
+        # print(f"get_metis_persudo_fp4_context,config={config},is_init={is_init},layer_no={layer_no},need_fp4_context={need_fp4_context} ")
+        if not need_fp4_context:
+            fp4_context = nullcontext()
+        elif layer_no >= 0 and config.first_last_layers_bf16 and (is_first_layer or is_last_layer):
+            fp4_context = nullcontext()
+        else:
+            metis_context_keys = get_metis_context_param_names()
+            args = {k: getattr(config, k) for k in metis_context_keys if hasattr(config, k)}
+            if config.metis_recipe == MetisRecipe.metis_persudo:
+                fp4_context = get_metis_context(**args)
+            elif config.metis_recipe == MetisRecipe.metis_te:
+                stack = ExitStack()
+                stack.enter_context(get_fp4_context(config, layer_no, is_init))
+                stack.enter_context(get_metis_context(**args))
+                fp4_context = stack
+            else:
+                raise ValueError(
+                    f"Unsupported fp4_recipe {config.fp4_recipe} for metis context."
+                )
+        return fp4_context

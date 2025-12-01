@@ -420,6 +420,84 @@ class TransformerConfig(ModelParallelConfig):
     together with fp4 mode (i.e., TransformerConfig.fp4 is not None). Note that not all parameters
     will be converted to fp4; for example, biases will remain unchanged."""
 
+    enable_metis: bool = False
+    """If set, enables the use of Metis quantization methods for FP4 precision training"""
+
+    metis_recipe: str = "metis_te"
+    """Method to use for Metis quantization."""
+
+    # fp4_method: str = "te_fp4"
+    # """Method to use for FP4 quantization. Only support te_fp4, metis_fp4 and metis_persudo_fp4"""
+
+    q_forward_input: str = "fp4e2m1b"
+    """Quantization format for forward input activation."""
+
+    q_forward_weight: str = "fp4e2m1b"
+    """Quantization format for forward weigth."""
+
+    q_backward_input: str = "fp4e2m1b"
+    """Quantization format for backward input activation gradient."""
+
+    q_backward_weight: str = "fp4e2m1b"
+    """Quantization format for backward weight activation gradient."""
+
+    q_backward_outputgrad: str = "fp4e2m1b"
+    """Quantization format for backward output activation gradient."""
+    
+    activation_lowrank_niter: int = 0
+    """Number of iterative refinement steps to apply for activation low-rank approximation.
+    Set to 0 to disable iterative refinement."""
+
+    backward_lowrank_niter: int = 0
+    """Number of iterative refinement steps to apply for backward (grad) low-rank approximation.
+    Set to 0 to disable iterative refinement."""
+
+    q_scalar: float = 1.0
+    """Scalar multiplier applied to query (or quantization) tensors when using lowrank/quantized
+    kernels. Use this to scale data before factorization/quantization."""
+
+    enable_activation_svd: bool = False
+    """If True, enable SVD-based low-rank decomposition for activation tensors."""
+
+    activation_lowrank_svd: int = -1
+    """Target rank for activation SVD decomposition. A value of -1 indicates auto or unset."""
+
+    enable_backward_svd: bool = False
+    """If True, enable SVD-based low-rank decomposition for backward (gradient) tensors."""
+
+    backward_lowrank_svd: int = -1
+    """Target rank for backward SVD decomposition. A value of -1 indicates auto or unset."""
+
+    # enable_backward_longtail = False  # (kept as commented option for future use)
+
+    activation_broadcast_dim: int = -1
+    """Dimension index used when broadcasting activation low-rank factors. -1 indicates default
+    behavior (no special broadcasting)."""
+
+    backward_broadcast_dim: int = -1
+    """Dimension index used when broadcasting backward low-rank factors. -1 indicates default
+    behavior (no special broadcasting)."""
+
+    activation_longtail_schedule: str = "none"
+    """Schedule policy for handling long-tail components in activation approximations.
+    Typical values: 'none', 'periodic', 'adaptive', etc."""
+
+    backward_longtail_schedule: str = "none"
+    """Schedule policy for handling long-tail components in backward (gradient) approximations.
+    Typical values: 'none', 'periodic', 'adaptive', etc."""
+
+    enable_lowbit: bool = True
+    """Enable low-bit (e.g., 4-bit/8-bit) quantization pathways for forward/backward computations."""
+
+    forward_svd_rank: int = -1
+    """Target SVD rank to use in forward path approximations. -1 indicates auto or unset."""
+
+    enable_weight_svd: bool = False
+    """If True, enable SVD-based low-rank decomposition for weight tensors."""
+
+    gradacc_broadcast: bool = False
+    """If True, broacast grad svd ."""
+
     ####################
     # MoE related
     ####################

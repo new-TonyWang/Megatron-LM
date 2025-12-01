@@ -22,6 +22,14 @@ import megatron.legacy.model  # isort: skip
 
 def gpt_builder(args, pre_process, post_process, vp_stage=None, config=None):
     print_rank_0('building GPT model ...')
+    # import debugpy
+
+    # # #5678 is the default attach port in the VS Code debug configurations. Unless a host and port are specified, host defaults to 127.0.0.1
+    # debugpy.listen(5678)
+    # print("Waiting for debugger attach")
+    # debugpy.wait_for_client()
+    # debugpy.breakpoint()
+    # print('break on this line')
     if config is None:
         if args.yaml_cfg is not None:
             config = core_transformer_config_from_yaml(args, "language_model")
@@ -90,7 +98,8 @@ def gpt_builder(args, pre_process, post_process, vp_stage=None, config=None):
             mtp_block_spec=mtp_block_spec,
             vp_stage=vp_stage,
         )
-
+    print(model)
+        # exit()
     return model
 
 
@@ -115,6 +124,9 @@ def _get_transformer_layer_spec(use_te, config):
             moe_use_legacy_grouped_gemm=args.moe_use_legacy_grouped_gemm,
             qk_l2_norm=args.qk_l2_norm,
             use_kitchen=config.use_kitchen,
+            enable_metis=config.enable_metis,
+            metis_recipe=config.metis_recipe,
+            
         )
     else:
         return get_gpt_layer_local_spec(
@@ -125,4 +137,5 @@ def _get_transformer_layer_spec(use_te, config):
             moe_use_legacy_grouped_gemm=args.moe_use_legacy_grouped_gemm,
             normalization=args.normalization,
             use_kitchen=config.use_kitchen,
+            metis_recipe=config.metis_recipe,
         )

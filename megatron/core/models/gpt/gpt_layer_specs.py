@@ -67,6 +67,7 @@ except ImportError:
     warnings.warn("Apex is not installed. Falling back to Torch Norm")
     LNImpl = WrappedTorchNorm
     HAVE_APEX = False
+from megatron.core.enums import MetisRecipe
 
 
 def get_gpt_layer_with_transformer_engine_spec(
@@ -80,6 +81,8 @@ def get_gpt_layer_with_transformer_engine_spec(
     use_te_op_fuser: Optional[bool] = False,
     use_kitchen: bool = False,
     use_te_activation_func: bool = False,
+    enable_metis:bool = False,
+    metis_recipe:  Optional[MetisRecipe] = None,
 ) -> ModuleSpec:
     """Use this spec to use lower-level Transformer Engine modules (required for fp8 training).
 
@@ -104,7 +107,7 @@ def get_gpt_layer_with_transformer_engine_spec(
             'The fp8 argument in "get_gpt_layer_with_transformer_engine_spec" has been deprecated'
             " and will be removed soon. Please update your code accordingly."
         )
-
+    # print("metis_fp4_recipe====",metis_fp4_recipe)
     if use_kitchen:
         assert HAVE_KITCHEN
         backend: BackendSpecProvider = KitchenSpecProvider(fallback=TESpecProvider())
@@ -112,6 +115,17 @@ def get_gpt_layer_with_transformer_engine_spec(
             raise AssertionError("use_te_op_fuser not compatible with using kitchen in mlp.")
         if use_te_activation_func:
             raise AssertionError("use_te_activation_func not compatible with using kitchen.")
+
+    elif enable_metis:
+        from megatron.core.extensions.metis_spec_provider import MetisPersudoTeSpecProvider, MetisTeSpecProvider
+        if metis_recipe == MetisRecipe.metis_persudo:
+            backend = MetisPersudoTeSpecProvider()
+        elif metis_recipe == MetisRecipe.metis_te:
+            backend = MetisTeSpecProvider()
+        else:
+            raise ValueError(
+                "Unknown provider"
+            )
     else:
         backend = TESpecProvider()
 
@@ -161,16 +175,49 @@ def get_gpt_layer_with_transformer_engine_spec(
                 mlp_bda=get_bias_dropout_add,
             ),
         )
+    elif enable_metis:
+        from megatron.core.extensions.metis_spec_provider import MetisSpecProviderBase,MetisSpecProvider,MetisPersudoTeSpecProvider,MetisTeSpecProvider
+        qk_norm = backend.layer_norm(for_qk=True)
+        return ModuleSpec(
+            module=TransformerLayer,
+            submodules=TransformerLayerSubmodules(
+                input_layernorm=qk_norm,
+                self_attention=ModuleSpec(
+                    module=SelfAttention,
+                    params={"attn_mask_type": AttnMaskType.causal},
+                    submodules=SelfAttentionSubmodules(
+                        linear_qkv=backend.column_parallel_linear(),
+                        core_attention=backend.core_attention(),
+                        linear_proj=backend.row_parallel_linear(),
+                        q_layernorm=(
+                            L2Norm if qk_l2_norm else (qk_norm if qk_layernorm else IdentityOp)
+                        ),
+                        k_layernorm=(
+                            L2Norm if qk_l2_norm else (qk_norm if qk_layernorm else IdentityOp)
+                        ),
+                    ),
+                ),
+                self_attn_bda=get_bias_dropout_add,
+                pre_mlp_layernorm=backend.layer_norm(),
+                mlp=mlp,
+                mlp_bda=get_bias_dropout_add,
+                sharded_state_dict_keys_map={
+                    "input_layernorm.": "self_attention.linear_qkv.layer_norm_",
+                    "pre_mlp_layernorm.": "mlp.linear_fc1.layer_norm_"
+                },
+            )
+        )
     else:
         qk_norm = backend.layer_norm(for_qk=True)
         return ModuleSpec(
             module=TransformerLayer,
             submodules=TransformerLayerSubmodules(
+                input_layernorm=qk_norm,
                 self_attention=ModuleSpec(
                     module=SelfAttention,
                     params={"attn_mask_type": AttnMaskType.causal},
                     submodules=SelfAttentionSubmodules(
-                        linear_qkv=backend.column_parallel_layer_norm_linear(),
+                        linear_qkv=backend.column_parallel_linear(),
                         core_attention=backend.core_attention(),
                         linear_proj=backend.row_parallel_linear(),
                         q_layernorm=(
@@ -186,12 +233,8 @@ def get_gpt_layer_with_transformer_engine_spec(
                 mlp=mlp,
                 mlp_bda=get_bias_dropout_add,
                 sharded_state_dict_keys_map={
-                    "mlp.0.weight": "mlp.linear_fc1.layer_norm_weight",
-                    "mlp.0.bias": "mlp.linear_fc1.layer_norm_bias",
-                    "mlp.1.basic_ops.0.weight": "mlp.linear_fc1.weight",
-                    "mlp.1.basic_ops.1.bias": "mlp.linear_fc1.bias",
-                    "mlp.3.basic_ops.0.weight": "mlp.linear_fc2.weight",
-                    "mlp.3.basic_ops.1.bias": "mlp.linear_fc2.bias",
+                    "input_layernorm.": "self_attention.linear_qkv.layer_norm_",
+                    "pre_mlp_layernorm.": "mlp.linear_fc1.layer_norm_",
                 },
             ),
         )
@@ -207,6 +250,7 @@ def get_gpt_layer_local_spec(
     normalization: Optional[str] = None,
     qk_l2_norm: Optional[bool] = False,
     use_kitchen: bool = False,
+    metis_recipe:  Optional[MetisRecipe] = None,
 ) -> ModuleSpec:
     """Use this spec for an implementation using only modules in Megatron-Core.
 
@@ -227,6 +271,8 @@ def get_gpt_layer_local_spec(
     if use_kitchen:
         assert HAVE_KITCHEN
         backend = KitchenSpecProvider(fallback=LocalSpecProvider())
+    elif metis_recipe == MetisRecipe.metis_persudo:
+        backend = MetisSpecProvider()
     else:
         backend = LocalSpecProvider()
     # Adjust for RMS norm.
