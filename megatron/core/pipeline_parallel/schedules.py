@@ -19,10 +19,10 @@ from megatron.core.utils import (
     get_model_type,
     get_model_xattn,
 )
-
+import os
 # Types
 Shape = Union[List[int], torch.Size]
-
+from loguru import logger as logging
 
 def get_forward_backward_func():
     """Retrieves the appropriate forward_backward function given the
@@ -158,7 +158,6 @@ def custom_backward(output, grad_output):
         accumulate_grad=True,
     )
 
-
 def set_current_microbatch(model, microbatch_id):
     """Set the current microbatch."""
     decoder_exists = True
@@ -171,6 +170,157 @@ def set_current_microbatch(model, microbatch_id):
         for layer in decoder.layers:
             layer.current_microbatch = microbatch_id
 
+class TensorDebugHandler:
+    def __init__(self):
+        self.activation_dict = {}
+        self.activation_grad_dict = {}
+        self.hooks = []
+        self.path = os.environ.get("dump_tensor_data_path","")
+        self.enable_dump = bool(os.environ.get("enable_tensor_dump",0)==1)
+        self.tensor_compare = bool(os.environ.get("tensor_compare",0)==1)
+
+    def get_activation_hook(self, name):
+        
+        def hook(model, input, output):
+            if name not in self.activation_dict:
+                self.activation_dict[name] = []
+            if isinstance(output, torch.Tensor):
+                self.activation_dict[name].append(output.detach().cpu())
+            elif isinstance(output, (list, tuple)):
+                res = []
+                for o in output:
+                    if isinstance(o, torch.Tensor):
+                        res.append(o.detach().cpu())
+                    else:
+                        res.append(o)
+                self.activation_dict[name].append(res)
+        return hook
+
+    def get_activation_grad_hook(self, name):
+        
+        def hook(model, grad_input, grad_output):
+            nonlocal name
+            name = f"{name}_grad"
+            if name not in self.activation_dict:
+                self.activation_dict[name] = []
+            if isinstance(grad_output, torch.Tensor):
+                self.activation_dict[name].append(grad_output.detach().cpu())
+            elif isinstance(grad_output, (list, tuple)):
+                res = []
+                for o in grad_output:
+                    if isinstance(o, torch.Tensor):
+                        res.append(o.detach().cpu())
+                    else:
+                        res.append(o)
+                self.activation_dict[name].append(res)
+        return hook
+
+    def register_activation_hooks(self, model):
+        self.remove_activation_hooks()
+        self.activation_dict.clear()
+        for name, module in model.named_modules():
+            if len(list(module.children())) == 0:
+                 self.hooks.append(module.register_forward_hook(self.get_activation_hook(name)))
+                #  self.hooks.append(module.register_full_backward_hook(self.get_activation_grad_hook(name)))
+
+    def save_tensors(self, model, step, current_siirl_status, rank, forward_only):
+        """保存模型中所有张量的数值"""
+        tensor_dict = {}
+        for name, param in model.named_parameters():
+            tensor_dict[name] = param.data.clone().cpu()
+            if not forward_only:
+                grad_tensor = None
+                if hasattr(param, 'main_grad') and param.main_grad is not None:
+                    grad_tensor = param.main_grad
+                elif param.grad is not None:
+                    grad_tensor = param.grad
+                if grad_tensor is not None:
+                    grad_name = f"{name}_grad"
+                    tensor_dict[grad_name] = grad_tensor.detach().clone().cpu()
+                    # logging.info(f"{name}_grad is : {tensor_dict[grad_name]}")
+        torch.save(tensor_dict, os.path.join(self.path, f'step_{str(step)}_tensors_{current_siirl_status}_rank{rank}.pt'))
+
+    def compare_param(self, model, step, current_siirl_status, rank, forward_only):
+        """保存模型中所有张量的数值"""
+        file_path = os.path.join(self.path, f'step_{str(step)}_tensors_{current_siirl_status}_rank{rank}.pt')
+        saved_tensor = torch.load(file_path)
+        for name, param in model.named_parameters():
+            # tensor_dict[name] = param.data.clone().cpu()
+            assert saved_tensor.get(name)is not None,f"dumped tensor has no key:{name},file_path={file_path},keys in file path:{saved_tensor.keys()},keys we have:{[k for k,v in model.named_parameters()]}"
+            ref = saved_tensor.get(name)
+            self.compare_tensors(name,ref,param)
+            if not forward_only:
+                grad_tensor = None
+                if hasattr(param, 'main_grad') and param.main_grad is not None:
+                    grad_tensor = param.main_grad
+                elif param.grad is not None:
+                    grad_tensor = param.grad
+                if grad_tensor is not None:
+                    grad_name = f"{name}_grad"
+                    assert saved_tensor.get(grad_name)is not None,f"dumped tensor has no key:{grad_name},file_path={file_path},keys in file path:{saved_tensor.keys()}"
+                    param_grad = grad_tensor.clone().cpu()
+                    ref_grad = saved_tensor.get(grad_name)
+                    self.compare_tensors(grad_name,ref_grad,param_grad)
+
+
+
+    def save_activations(self, step, current_siirl_status, rank):
+        save_dict = self.activation_dict.copy()
+        # for k, v in self.activation_grad_dict.items():
+        #     save_dict[f"{k}_grad"] = v
+        torch.save(save_dict, os.path.join(self.path, f'step_{str(step)}_activations_{current_siirl_status}_rank{rank}.pt'))
+        self.activation_dict.clear()
+        self.activation_grad_dict.clear()
+
+    def compare_activations(self, step, current_siirl_status, rank):
+        file_path = os.path.join(self.path, f'step_{str(step)}_activations_{current_siirl_status}_rank{rank}.pt')
+        saved_tensor = torch.load(file_path)
+        for k,v in self.activation_dict.items():
+            assert saved_tensor.get(k)is not None,f"dumped tensor has no key:{k},file_path={file_path},keys in file path:{saved_tensor.keys()},keys we have:{self.activation_dict.keys()}"
+            ref = saved_tensor.get(k)
+            self.compare_tensors(k,ref,v,is_activation=True)
+        self.activation_dict.clear()
+        self.activation_grad_dict.clear()
+
+    def remove_activation_hooks(self):
+        for h in self.hooks:
+            h.remove()
+        self.hooks = []
+        self.activation_dict.clear()
+        self.activation_grad_dict.clear()
+
+    def compare_tensors(self, key,ref, current,is_activation=False):
+        """按照名称读取pt文件并和当前tensor进行精度比较"""
+        # logging.info(f"Comparing  {key}")
+        def compare(n, c, r):
+            try:
+                if isinstance(c, torch.Tensor) and isinstance(r, torch.Tensor):
+                    c = c.cpu()
+                    r = r.cpu()
+                    if c.shape != r.shape:
+                        if is_activation:
+                            log_info = f"❌ Rank {torch.distributed.get_rank()} Shape mismatch in {n}: current {c.shape}, reference {r.shape}"
+                        else:
+                            log_info = f"❌ Rank {torch.distributed.get_rank()} Shape mismatch in {n} output: current {c.shape}, reference {r.shape}"
+                            logging.warning(log_info)
+                        return
+                    if not torch.allclose(c, r, rtol=1e-5, atol=1e-8):
+                        diff = (c - r).abs().max()
+                        logging.warning(f"❌ Rank {torch.distributed.get_rank()} Mismatch in {n} { 'output' if is_activation else ''}: max diff {diff}")
+                    else:
+                        logging.info(f"✅ Rank {torch.distributed.get_rank()} {n} is the same")
+                elif isinstance(c, (list, tuple)) and isinstance(r, (list, tuple)):
+                    if len(c) != len(r):
+                        logging.warning(f"❌ Rank {torch.distributed.get_rank()} Length mismatch in {n} { 'output' if is_activation else ''}")
+                        return
+                    for i, (ci, ri) in enumerate(zip(c, r)):
+                        compare(f"{n}_{i}", ci, ri)
+            except Exception as e:
+                logging.error(f"Error comparing {n}: {e}")
+
+        compare(key, current, ref)
+
+debug_handler = TensorDebugHandler()
 
 def forward_step(
     forward_step_func,
@@ -475,6 +625,7 @@ def forward_backward_no_pipelining(
     forward_data_store = []
     input_tensor, output_tensor_grad = None, None
     total_num_tokens = torch.zeros([], dtype=torch.int, device="cuda")
+
     with no_sync_func():
         for i in range(num_microbatches - 1):
             output_tensor, num_tokens = forward_step(
@@ -495,6 +646,10 @@ def forward_backward_no_pipelining(
 
     # Run computation for last microbatch out of context handler (want to
     # synchronize gradients).
+
+    if debug_handler.enable_dump or debug_handler.tensor_compare:
+        debug_handler.register_activation_hooks(model)
+
     output_tensor, num_tokens = forward_step(
         forward_step_func,
         data_iterator,
@@ -513,6 +668,20 @@ def forward_backward_no_pipelining(
 
     if not forward_only:
         backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config)
+
+    if debug_handler.enable_dump:
+        current_siirl_status = os.environ.get("siirl_status",None)
+        assert current_siirl_status, f"when dumping data, must set siirl_status env"
+        debug_handler.save_tensors(model,os.environ["step"],current_siirl_status,rank=torch.distributed.get_rank(),forward_only=True)
+        debug_handler.save_activations(os.environ["step"],current_siirl_status,rank=torch.distributed.get_rank())
+        debug_handler.remove_activation_hooks()
+
+    if debug_handler.tensor_compare:
+        current_siirl_status = os.environ.get("siirl_status",None)
+        assert current_siirl_status, f"when comparing data, must set siirl_status env"
+        debug_handler.compare_param(model,os.environ["step"],current_siirl_status,rank=torch.distributed.get_rank(),forward_only=True)
+        debug_handler.compare_activations(os.environ["step"],current_siirl_status,rank=torch.distributed.get_rank())
+        debug_handler.remove_activation_hooks()
 
     if config.finalize_model_grads_func is not None and not forward_only:
         # Finalize model grads (perform full grad all-reduce / reduce-scatter for

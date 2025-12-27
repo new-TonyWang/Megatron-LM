@@ -1,0 +1,31 @@
+diff --git a/megatron/core/parallel_state.py b/megatron/core/parallel_state.py
+index 1916bfff0..5c0813357 100644
+--- a/megatron/core/parallel_state.py
++++ b/megatron/core/parallel_state.py
+@@ -691,7 +691,7 @@ def initialize_model_parallel(
+     # Get world size and rank. Ensure some consistencies.
+     assert torch.distributed.is_initialized()
+     world_size: int = torch.distributed.get_world_size()
+-
++    world_size=1
+     model_size = tensor_model_parallel_size * pipeline_model_parallel_size * context_parallel_size
+ 
+     if world_size % model_size != 0:
+@@ -736,7 +736,7 @@ def initialize_model_parallel(
+         pp=pipeline_model_parallel_size,
+         cp=context_parallel_size,
+         order=order,
+-        rank_offset=0,
++        rank_offset=1,
+     )
+ 
+     # Build expert rank generator
+@@ -759,7 +759,7 @@ def initialize_model_parallel(
+         pp=pipeline_model_parallel_size,
+         cp=1,
+         order=order,
+-        rank_offset=0,
++        rank_offset=1,
+     )
+ 
+     assert (
