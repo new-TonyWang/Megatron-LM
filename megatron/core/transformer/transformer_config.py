@@ -470,14 +470,6 @@ class TransformerConfig(ModelParallelConfig):
 
     # enable_backward_longtail = False  # (kept as commented option for future use)
 
-    activation_broadcast_dim: int = -1
-    """Dimension index used when broadcasting activation low-rank factors. -1 indicates default
-    behavior (no special broadcasting)."""
-
-    backward_broadcast_dim: int = -1
-    """Dimension index used when broadcasting backward low-rank factors. -1 indicates default
-    behavior (no special broadcasting)."""
-
     activation_longtail_schedule: str = "none"
     """Schedule policy for handling long-tail components in activation approximations.
     Typical values: 'none', 'periodic', 'adaptive', etc."""
@@ -497,6 +489,29 @@ class TransformerConfig(ModelParallelConfig):
 
     gradacc_broadcast: bool = False
     """If True, broacast grad svd ."""
+
+    separate_residual_quantization: bool  = False
+    """ separate_residual_quantization """
+    
+    activation_restore_strategy:str = "tile"
+    """ activation_restore_strategy """
+    
+    activation_broadcast_dim:int = -1
+    """Dimension index used when broadcasting activation low-rank factors. -1 indicates default
+    behavior (no special broadcasting)."""
+
+    activation_token_drop_rate:float = -1.0
+    """ activation_token_drop_rate """
+
+    backward_restore_strategy: str = "tile"
+    """ backward_restore_strategy """
+
+    backward_broadcast_dim:int = -1
+    """Dimension index used when broadcasting backward low-rank factors. -1 indicates default
+    behavior (no special broadcasting)."""
+
+    backward_token_drop_rate:float = -1.0
+    """ backward_token_drop_rate """
 
     ####################
     # MoE related

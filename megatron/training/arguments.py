@@ -3374,13 +3374,20 @@ def _add_metis_args(parser):
 
     group.add_argument("--backward-longtail-schedule", type=str, default="none")
     group.add_argument("--activation-longtail-schedule", type=str, default="none")
-    group.add_argument("--backward-broadcast-dim", type=int, default=-1)
-    group.add_argument("--activation-broadcast-dim", type=int, default=-1)
     group.add_argument("--enable-lowbit", action='store_true')
 
     group.add_argument("--forward-svd-rank", type=int, default=-1)
     group.add_argument("--enable-weight-svd", action='store_true')
     group.add_argument("--gradacc-broadcast-steps", type=int, default=1)
     group.add_argument("--gradacc-broadcast", action='store_true')
+
+    group.add_argument("--separate-residual-quantization", action='store_true')
+    group.add_argument("--activation-broadcast-dim", type=int, default=-1)
+    group.add_argument("--activation-restore-strategy", type=str, default="tile")
+    group.add_argument("--activation-token-drop-rate", type=float, default=-1.0)
+
+    group.add_argument("--backward-broadcast-dim", type=int, default=-1)
+    group.add_argument("--backward-restore-strategy", type=str, default="tile")
+    group.add_argument("--backward-token-drop-rate", type=float, default=-1.0)
     
     return parser
