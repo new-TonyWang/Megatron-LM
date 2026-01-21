@@ -487,9 +487,6 @@ class TransformerConfig(ModelParallelConfig):
     enable_weight_svd: bool = False
     """If True, enable SVD-based low-rank decomposition for weight tensors."""
 
-    gradacc_broadcast: bool = False
-    """If True, broacast grad svd ."""
-
     separate_residual_quantization: bool  = False
     """ separate_residual_quantization """
     
@@ -512,6 +509,15 @@ class TransformerConfig(ModelParallelConfig):
 
     backward_token_drop_rate:float = -1.0
     """ backward_token_drop_rate """
+
+    enable_gradient_accumulation_optimization: bool = False
+    """If True, broacast grad svd ."""
+
+    use_grad_power_iteration_svd: bool = False
+    """If True, use use_grad_power_iteration_svd ."""
+
+    grad_power_iteration_time: int = 1
+    """ grad_power_iteration_time """
 
     ####################
     # MoE related
