@@ -487,8 +487,8 @@ class TransformerConfig(ModelParallelConfig):
     enable_weight_svd: bool = False
     """If True, enable SVD-based low-rank decomposition for weight tensors."""
 
-    separate_residual_quantization: bool  = False
-    """ separate_residual_quantization """
+    quantization_strategy: str = "base"
+    """Quantization strategy: 'base', 'separate_residual', 'mean_concat', or 'mean'"""
     
     activation_restore_strategy:str = "tile"
     """ activation_restore_strategy """

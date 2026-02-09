@@ -3379,7 +3379,7 @@ def _add_metis_args(parser):
     group.add_argument("--forward-svd-rank", type=int, default=-1)
     group.add_argument("--enable-weight-svd", action='store_true')
 
-    group.add_argument("--separate-residual-quantization", action='store_true')
+    group.add_argument("--quantization-strategy", type=str, default="separate_residual")
     group.add_argument("--activation-broadcast-dim", type=int, default=-1)
     group.add_argument("--activation-restore-strategy", type=str, default="tile")
     group.add_argument("--activation-token-drop-rate", type=float, default=-1.0)
@@ -3392,5 +3392,9 @@ def _add_metis_args(parser):
     group.add_argument("--enable-gradient-accumulation-optimization", action='store_true')
     group.add_argument("--use-grad-power-iteration-svd", action='store_true')
     group.add_argument("--grad-power-iteration-time", type=int, default=1)
+
+    group.add_argument("--weight-svd-warmup-steps", type=int, default=100)
+    group.add_argument("--weight-svd-update-interval", type=int, default=20)
+
     
     return parser

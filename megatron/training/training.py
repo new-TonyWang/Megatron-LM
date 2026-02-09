@@ -2254,13 +2254,28 @@ def train(
         num_microbatches = get_num_microbatches()
         update_num_microbatches(args.consumed_train_samples, consistency_check=True, verbose=True)
 
+        enable_metis_wegit_decompose = (args.enable_metis and args.enable_weight_svd)
+        need_metis_decompose_weight_capture_cuda_graph_in_current_iter =  enable_metis_wegit_decompose and iteration == args.weight_svd_warmup_steps
+        need_metis_decompose_weight_in_current_iter = enable_metis_wegit_decompose and iteration >= args.weight_svd_warmup_steps and  (iteration - args.weight_svd_warmup_steps) % args.weight_svd_update_interval == 0
+        if need_metis_decompose_weight_in_current_iter:
+            from transformer_engine.pytorch.module.metis.metis_linear import MetisLinear
+            unwrapped_model = unwrap_model(model)
+            for model_chunk in unwrapped_model:
+                for m in model_chunk.modules():
+                    if isinstance(m, MetisLinear):
+                        m.weight_svd_decomposition()
         # Capture CUDA Graphs.
         if (
             args.cuda_graph_impl == "transformer_engine"
-            and iteration == args.cuda_graph_warmup_steps
+            and (iteration == args.cuda_graph_warmup_steps 
+                or need_metis_decompose_weight_capture_cuda_graph_in_current_iter)
         ):
+            if need_metis_decompose_weight_capture_cuda_graph_in_current_iter:
+                print(model)
+                print("recapture cuda graph...")
             if iteration > start_iteration and should_disable_forward_pre_hook(args):
                 disable_forward_pre_hook(model, param_sync=False)
+            cuda_graph_helper.clear_cudagraphs()
             cuda_graph_helper.create_cudagraphs()
             if iteration > start_iteration and should_disable_forward_pre_hook(args):
                 enable_forward_pre_hook(model)
@@ -2337,7 +2352,8 @@ def train(
                     # Set the manual hooks here since it's not set right after the capturing.
                     if (
                         args.cuda_graph_impl == "transformer_engine"
-                        and iteration == args.cuda_graph_warmup_steps
+                        and (iteration == args.cuda_graph_warmup_steps
+                        or need_metis_decompose_weight_capture_cuda_graph_in_current_iter)
                     ):
                         cuda_graph_helper.cuda_graph_set_manual_hooks()
 

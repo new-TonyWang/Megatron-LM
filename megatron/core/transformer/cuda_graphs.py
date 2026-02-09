@@ -1650,6 +1650,22 @@ class TECudaGraphHelper:
 
         self._finish_capturing(start_time)
 
+    def clear_cudagraphs(self):
+        """
+        clear CUDA Graphs per TransformerLayer per microbatch.
+        """
+        # Push the captured graphs to the corresponding TransformerBlock.
+        for layers in self.callables_per_chunk:
+            for layer_number, layer in enumerate(layers):
+                if hasattr(layer,"cuda_graphs"):
+                    layer.cuda_graphs.clear()
+
+        log_single_rank(
+            logger,
+            logging.INFO,
+            f'Successfuly clear cuda graphs on rank {torch.distributed.get_rank()}: '
+        )
+        
     def cuda_graph_set_manual_hooks(self):
         """
         Set CUDA Graph manual hooks for the modules that contain direct parameters and

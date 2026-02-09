@@ -110,7 +110,7 @@ def _get_param_groups(
                 #  https://arxiv.org/abs/2312.16903)
                 no_wd = (
                     name.endswith(".bias")
-                    or len(param.shape) == 1
+                    or (len(param.shape) == 1 and not name.endswith(".eigenvalue"))
                     or (default_skip_embedding_weight_decay and "embedding" in name)
                 )
 
