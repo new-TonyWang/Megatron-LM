@@ -467,6 +467,8 @@ def get_gpt_decoder_block_spec(
             qk_l2_norm=qk_l2_norm,
             use_kitchen=config.use_kitchen,
             use_te_activation_func=config.use_te_activation_func,
+            enable_metis=config.enable_metis,
+            metis_recipe=config.metis_recipe,
         )
         moe_layer_spec = get_gpt_layer_with_transformer_engine_spec(
             num_experts=config.num_moe_experts,
@@ -477,6 +479,8 @@ def get_gpt_decoder_block_spec(
             qk_l2_norm=qk_l2_norm,
             use_kitchen=config.use_kitchen,
             use_te_activation_func=config.use_te_activation_func,
+            enable_metis=config.enable_metis,
+            metis_recipe=config.metis_recipe,
         )
     else:
         layer_norm_impl = LNImpl

@@ -1165,6 +1165,7 @@ if HAVE_TE and is_te_min_version("1.9.0.dev0"):
                 bias=bias,
                 return_bias=self.te_return_bias,
                 parallel_mode=parallel_mode,
+                enable_metis=config.enable_metis,
                 **extra_kwargs,
             )
 
@@ -1452,6 +1453,15 @@ if HAVE_TE and is_te_min_version("1.9.0.dev0"):
                 tp_axis_map, prefix, sharded_offsets, metadata
             )
 
+        def __repr__(self):
+            device = next(self.parameters()).device if self.parameters() else None
+            return (
+                f"{type(self).__name__}(in_features={self.in_features}, "
+                f"out_features={self.out_features}, num_gemms={self.num_gemms}, "
+                f"bias={self.use_bias}, TP={self.tp_size}, "
+                f"enable_metis={self.enable_metis}, device={device})"
+            )
+
     class TERowParallelGroupedLinear(TEGroupedLinear):
         """
         Wrapper for the Transformer-Engine's `GroupedLinear` layer but specialized
@@ -1494,6 +1504,15 @@ if HAVE_TE and is_te_min_version("1.9.0.dev0"):
             tp_axis_map = {f"{gemm_idx}.weight": 1 for gemm_idx in range(self.num_gemms)}
             return super()._sharded_state_dict_grouped(
                 tp_axis_map, prefix, sharded_offsets, metadata
+            )
+
+        def __repr__(self):
+            device = next(self.parameters()).device if self.parameters() else None
+            return (
+                f"{type(self).__name__}(in_features={self.in_features}, "
+                f"out_features={self.out_features}, num_gemms={self.num_gemms}, "
+                f"bias={self.use_bias}, TP={self.tp_size}, "
+                f"enable_metis={self.enable_metis}, device={device})"
             )
 
 else:

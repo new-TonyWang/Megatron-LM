@@ -814,7 +814,7 @@ class TEGroupedMLP(MegatronModule):
 
             set_save_original_input(self.linear_fc2)
 
-        if self.config.fp8:
+        if self.config.fp8 or self.config.fp4:
             assert HAVE_TE, "FP8 requires TE."
             self.fp8_padding = Fp8Padding(self.num_local_experts)
             self.fp8_unpadding = Fp8Unpadding(self.num_local_experts)
@@ -857,7 +857,7 @@ class TEGroupedMLP(MegatronModule):
             output (torch.Tensor): The output of the local experts.
         """
         tokens_per_expert = tokens_per_expert.tolist()
-        if self.config.fp8:
+        if self.config.fp8 or self.config.fp4:
             actual_tokens_per_expert = tokens_per_expert
             permuted_local_hidden_states, tokens_per_expert = self.fp8_padding(
                 permuted_local_hidden_states, tokens_per_expert
@@ -954,7 +954,7 @@ class TEGroupedMLP(MegatronModule):
             output, output_bias = self.linear_fc2(intermediate_parallel, tokens_per_expert)
 
         # upad and concat the output
-        if self.config.fp8:
+        if self.config.fp8 or self.config.fp4:
             output = self.fp8_unpadding(output, actual_tokens_per_expert)
 
         output = self._apply_bias(output, output_bias, tokens_per_expert, permuted_probs)
@@ -1086,7 +1086,7 @@ class SequentialMLP(MegatronModule):
             permuted_probs = torch.ones_like(permuted_probs)
 
         if self.num_local_experts == 1:
-            if self.config.fp8:
+            if self.config.fp8 or self.config.fp4:
                 hidden, probs = self._pad_tensor_for_fp8(
                     permuted_local_hidden_states, permuted_probs
                 )
@@ -1106,7 +1106,7 @@ class SequentialMLP(MegatronModule):
             output_local_list = []
 
             for expert, tokens, probs in zip(self.local_experts, tokens_list, probs_list):
-                if self.config.fp8:
+                if self.config.fp8 or self.config.fp4:
                     hidden, probs = self._pad_tensor_for_fp8(tokens, probs)
                     output, output_bias = expert(hidden, probs)
                     output = output[: tokens.shape[0]]
