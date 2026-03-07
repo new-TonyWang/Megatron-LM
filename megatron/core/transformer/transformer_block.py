@@ -341,7 +341,7 @@ class TransformerBlock(GraphableMegatronModule, MegatronModule):
                 layer_config = self.config
             # debugpy.breakpoint()
             # Get appropriate quantization context (FP8 and FP4 are mutually exclusive)
-            if self.config.enable_metis and self.config.fp8:
+            if layer_config.enable_metis and self.config.fp8:
                 quantization_context = get_metis_fp8_context(
                     self.config, global_layer_number - 1, is_init=True
                 )            
@@ -416,7 +416,7 @@ class TransformerBlock(GraphableMegatronModule, MegatronModule):
 
                     # Get appropriate inner quantization context
                     if use_inner_quantization_context:
-                        if self.config.enable_metis and self.config.fp8:
+                        if self.config.enable_metis:
                             if self.config.fp8:
                                 inner_quantization_context = get_metis_fp8_context(
                                     self.config, layer.layer_number - 1
@@ -707,7 +707,7 @@ class TransformerBlock(GraphableMegatronModule, MegatronModule):
                 for l_no, layer in enumerate(self.layers):
                     # Get appropriate inner quantization context
                     if use_inner_quantization_context:
-                        if self.config.enable_metis and self.config.fp8:
+                        if self.config.enable_metis:
                             if self.config.fp8:
                                 inner_quantization_context = get_metis_fp8_context(
                                     self.config, layer.layer_number - 1
