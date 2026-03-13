@@ -1598,12 +1598,16 @@ def training_log(
         log_string += ' elapsed time per iteration (ms): {:.1f} |'.format(
             elapsed_time_per_iteration * 1000.0
         )
+        tokens_per_second = batch_size * args.seq_length / elapsed_time_per_iteration
         if args.log_throughput:
+            log_string += f' tokens per second: {tokens_per_second:.1f} |'
             log_string += f' throughput per GPU (TFLOP/s/GPU): {throughput:.1f} |'
             if args.log_timers_to_tensorboard:
                 if writer:
+                    writer.add_scalar('tokens-per-second', tokens_per_second, iteration)
                     writer.add_scalar('throughput', throughput, iteration)
                 if wandb_writer:
+                    wandb_writer.log({'tokens-per-second': tokens_per_second}, iteration)
                     wandb_writer.log({'throughput': throughput}, iteration)
         if args.log_energy:
             energy = (energy_monitor.lap() / total_iterations) / args.world_size

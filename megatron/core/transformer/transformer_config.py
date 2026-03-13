@@ -519,6 +519,9 @@ class TransformerConfig(ModelParallelConfig):
     grad_power_iteration_time: int = 1
     """ grad_power_iteration_time """
 
+    enable_history_optimization: bool = False
+    """If True, enable history optimization for forward."""
+
     ####################
     # MoE related
     ####################

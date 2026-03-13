@@ -3390,6 +3390,7 @@ def _add_metis_args(parser):
 
     group.add_argument("--gradacc-broadcast-steps", type=int, default=1)
     group.add_argument("--enable-gradient-accumulation-optimization", action='store_true')
+    group.add_argument("--enable-history-optimization", action='store_true')
     group.add_argument("--use-grad-power-iteration-svd", action='store_true')
     group.add_argument("--grad-power-iteration-time", type=int, default=1)
 
