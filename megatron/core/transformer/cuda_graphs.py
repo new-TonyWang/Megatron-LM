@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from collections import defaultdict
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -1541,7 +1541,11 @@ class TECudaGraphHelper:
             if is_te_min_version("2.7.0"):
                 # Starting from TE 2.7.0, make_graphed_callables() optimizes the graph memory usage
                 # by reusing input/output data buffers between graphs.
-                kwargs['_reuse_graph_input_output_buffers'] = True
+                hybrid_metis = (
+                    self.config.enable_metis
+                    and self.config.enable_gradient_accumulation_optimization
+                )
+                kwargs['_reuse_graph_input_output_buffers'] = not hybrid_metis
 
             if sample_kwargs:
                 kwargs['sample_kwargs'] = sample_kwargs
@@ -1631,7 +1635,43 @@ class TECudaGraphHelper:
 
         # Prepare CUDA Graph capturing input data and call `make_graphed_callables`.
         sample_args, kwargs = self._get_cuda_graph_input_data()
-        graphs = make_graphed_callables(tuple(self.flattened_callables), sample_args, **kwargs)
+        with ExitStack() as stack:
+            if self.config.enable_metis:
+                from transformer_engine.pytorch.module.metis.metis_context import (
+                    get_metis_context,
+                    get_metis_context_param_names,
+                )
+
+                if self.config.enable_activation_svd and not (
+                    self.config.use_power_iteration_svd
+                    and self.config.enable_history_optimization
+                ):
+                    raise RuntimeError(
+                        "Metis CUDA Graph capture with activation SVD requires "
+                        "--use-power-iteration-svd and "
+                        "--enable-history-optimization"
+                    )
+                if self.config.enable_backward_svd and not (
+                    self.config.use_grad_power_iteration_svd
+                    and self.config.enable_gradient_accumulation_optimization
+                ):
+                    raise RuntimeError(
+                        "Metis CUDA Graph capture with backward SVD requires "
+                        "--use-grad-power-iteration-svd and "
+                        "--enable-gradient-accumulation-optimization"
+                    )
+
+                metis_context_keys = get_metis_context_param_names()
+                metis_args = {
+                    key: getattr(self.config, key)
+                    for key in metis_context_keys
+                    if hasattr(self.config, key)
+                }
+                stack.enter_context(get_metis_context(**metis_args))
+
+            graphs = make_graphed_callables(
+                tuple(self.flattened_callables), sample_args, **kwargs
+            )
 
         # Push the captured graphs to the corresponding TransformerBlock.
         num_layers_accumulated = 0

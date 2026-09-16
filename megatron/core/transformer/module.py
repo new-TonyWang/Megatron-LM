@@ -1,6 +1,7 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
 
 """Megatron Module."""
+import os
 from typing import Optional, Tuple
 
 import torch
@@ -281,11 +282,24 @@ class GraphableMegatronModule(MegatronModule):
         """
         from megatron.core.transformer.cuda_graphs import is_graph_capturing
 
-        return (
-            self.config.cuda_graph_impl == "transformer_engine"
-            and self.training
-            and (is_graph_capturing() or self.cuda_graphs)
+        if self.config.cuda_graph_impl != "transformer_engine" or not self.training:
+            return False
+
+        if is_graph_capturing():
+            return True
+
+        hybrid_metis = (
+            self.config.enable_metis
+            and self.config.enable_gradient_accumulation_optimization
         )
+        if hybrid_metis:
+            current_microbatch = getattr(self, 'current_microbatch', 0)
+            broadcast_steps = self.config.gradacc_broadcast_steps
+            if broadcast_steps < 1:
+                raise ValueError("gradacc_broadcast_steps must be at least 1")
+            return bool(self.cuda_graphs) and current_microbatch % broadcast_steps != 0
+
+        return bool(self.cuda_graphs)
 
     def __call__(self, *args, **kwargs):
 
@@ -295,6 +309,16 @@ class GraphableMegatronModule(MegatronModule):
             self.cudagraph_manager.set_is_first_microbatch(current_microbatch == 0)
             return self.cudagraph_manager(self, args, kwargs)
         elif self._should_call_te_cudagraph(*args, **kwargs):
+            if (
+                os.getenv("METIS_TRACE_HYBRID_CUDAGRAPH", "0") == "1"
+                and getattr(self, "layer_number", 0) == 1
+            ):
+                route = "capture" if not self.cuda_graphs else "replay"
+                print(
+                    f"METIS_CUDAGRAPH_ROUTE microbatch="
+                    f"{getattr(self, 'current_microbatch', 0)} route={route}",
+                    flush=True,
+                )
             if not self.cuda_graphs:
                 # Do CUDA Graphs capture.
                 cuda_graph_func = self._te_cuda_graph_capture
@@ -302,6 +326,17 @@ class GraphableMegatronModule(MegatronModule):
                 # Do CUDA Graphs replay.
                 cuda_graph_func = self._te_cuda_graph_replay
             return cuda_graph_func(*args, **kwargs)
+        if (
+            os.getenv("METIS_TRACE_HYBRID_CUDAGRAPH", "0") == "1"
+            and getattr(self, "layer_number", 0) == 1
+            and self.config.enable_metis
+            and self.config.enable_gradient_accumulation_optimization
+        ):
+            print(
+                f"METIS_CUDAGRAPH_ROUTE microbatch="
+                f"{getattr(self, 'current_microbatch', 0)} route=eager",
+                flush=True,
+            )
         return super().__call__(*args, **kwargs)
 
 

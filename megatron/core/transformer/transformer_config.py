@@ -513,11 +513,23 @@ class TransformerConfig(ModelParallelConfig):
     enable_gradient_accumulation_optimization: bool = False
     """If True, broacast grad svd ."""
 
+    gradacc_broadcast_steps: int = 1
+    """Number of microbatches between eager SVD anchor microbatches."""
+
     use_grad_power_iteration_svd: bool = False
     """If True, use use_grad_power_iteration_svd ."""
 
     grad_power_iteration_time: int = 1
     """ grad_power_iteration_time """
+
+    use_power_iteration_svd: bool = False
+    """Use the previous activation right-singular vectors to run power iteration."""
+
+    power_iteration_time: int = 1
+    """Number of activation power-iteration steps."""
+
+    enable_history_optimization: bool = False
+    """Keep per-linear SVD history for gradient accumulation optimization."""
 
     ####################
     # MoE related

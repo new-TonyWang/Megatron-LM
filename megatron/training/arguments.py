@@ -3392,6 +3392,9 @@ def _add_metis_args(parser):
     group.add_argument("--enable-gradient-accumulation-optimization", action='store_true')
     group.add_argument("--use-grad-power-iteration-svd", action='store_true')
     group.add_argument("--grad-power-iteration-time", type=int, default=1)
+    group.add_argument("--use-power-iteration-svd", action='store_true')
+    group.add_argument("--power-iteration-time", type=int, default=1)
+    group.add_argument("--enable-history-optimization", action='store_true')
 
     group.add_argument("--weight-svd-warmup-steps", type=int, default=100)
     group.add_argument("--weight-svd-update-interval", type=int, default=20)
